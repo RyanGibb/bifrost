@@ -1,0 +1,4 @@
+(executable
+ (public_name bifrost)
+ (name main)
+ (libraries bifrost))
