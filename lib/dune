@@ -1,2 +1,3 @@
 (library
- (name bifrost))
+ (name bifrost)
+ (modules bigraph operations matching utils))
