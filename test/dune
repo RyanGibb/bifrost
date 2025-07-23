@@ -1,3 +1,7 @@
 (test
  (name test_bifrost)
  (libraries bifrost))
+
+(test
+ (name test_matching)
+ (libraries bifrost))
