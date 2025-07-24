@@ -150,12 +150,10 @@ let test_movement_rule () =
 
   (* Create target: Person inside Room1, Room2 exists *)
   let room1 = create_node 1 (create_control "Room" 0) in
-  let room2 = create_node 2 (create_control "Room" 0) in
   let person = create_node 3 (create_control "Person" 1) in
 
   let target_bigraph = empty_bigraph signature in
   let target_bigraph = add_node_to_root target_bigraph room1 in
-  let target_bigraph = add_node_to_root target_bigraph room2 in
   let target_bigraph = add_node_as_child target_bigraph 1 person in
   (* Person in Room1 *)
 
@@ -185,8 +183,8 @@ let test_movement_rule () =
   in
 
   (* Create reactum: Empty Room and Person at root (what we want as result) *)
-  let reactum_room = create_node 200 (create_control "Room" 0) in
-  let reactum_person = create_node 201 (create_control "Person" 1) in
+  let reactum_room = create_node 100 (create_control "Room" 0) in
+  let reactum_person = create_node 101 (create_control "Person" 1) in
   let reactum_bigraph = empty_bigraph signature in
   let reactum_bigraph = add_node_to_root reactum_bigraph reactum_room in
   let reactum_bigraph = add_node_to_root reactum_bigraph reactum_person in
@@ -257,13 +255,13 @@ let test_room_to_room_movement () =
   in
 
   (* Create reactum: Room1 (empty) and Room2[Person] *)
-  let reactum_room1 = create_node 200 (create_control "Room" 0) in
-  let reactum_room2 = create_node 201 (create_control "Room" 0) in
-  let reactum_person = create_node 202 (create_control "Person" 1) in
+  let reactum_room1 = create_node 100 (create_control "Room" 0) in
+  let reactum_room2 = create_node 101 (create_control "Room" 0) in
+  let reactum_person = create_node 102 (create_control "Person" 1) in
   let reactum_bigraph = empty_bigraph signature in
   let reactum_bigraph = add_node_to_root reactum_bigraph reactum_room1 in
   let reactum_bigraph = add_node_to_root reactum_bigraph reactum_room2 in
-  let reactum_bigraph = add_node_as_child reactum_bigraph 201 reactum_person in
+  let reactum_bigraph = add_node_as_child reactum_bigraph 101 reactum_person in
   let reactum =
     {
       bigraph = reactum_bigraph;

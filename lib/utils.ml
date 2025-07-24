@@ -4,20 +4,37 @@ open Bigraph
 let get_parent bigraph node_id =
   NodeMap.find_opt node_id bigraph.place.parent_map
 
-let get_children bigraph node_id =
-  NodeMap.fold
-    (fun child_id parent_id acc ->
-      if parent_id = node_id then NodeSet.add child_id acc else acc)
-    bigraph.place.parent_map NodeSet.empty
+let get_children bigraph parent_id =
+  (* Printf.printf "Debug: Getting children of node %d\n" parent_id; *)
+  let children = 
+    NodeMap.fold
+      (fun child_id parent_in_map acc ->
+        if parent_in_map = parent_id then 
+          (
+            (* Printf.printf "  Found child: %d\n" child_id; *)
+          NodeSet.add child_id acc)
+        else acc)
+      bigraph.place.parent_map NodeSet.empty in
+  (* Printf.printf "  Total children: %d\n" (NodeSet.cardinal children); *)
+  children
 
 let get_root_nodes bigraph =
+  (* Printf.printf "Debug: Looking for root nodes\n";
+  Printf.printf "Debug: parent_map contents:\n"; *)
+  (* NodeMap.iter (fun child parent ->
+    Printf.printf "  %d -> %d\n" child parent
+  ) bigraph.place.parent_map; *)
+  
   NodeMap.fold
-    (fun node_id _node acc ->
-      if NodeMap.mem node_id bigraph.place.parent_map then acc
+    (* (fun node_id _ acc -> *)
+    (fun node_id _ acc ->
+      let is_in_parent_map = NodeMap.mem node_id bigraph.place.parent_map in
+      (* Printf.printf "Debug: Node %d (%s) - in parent_map: %b\n" 
+        node_id node.control.name is_in_parent_map; *)
+      if is_in_parent_map then acc
       else NodeSet.add node_id acc)
     bigraph.place.nodes NodeSet.empty
 
-(* Basic node manipulation *)
 let add_node_to_root bigraph node =
   let new_nodes = NodeMap.add node.id node bigraph.place.nodes in
   let new_place = { bigraph.place with nodes = new_nodes } in

@@ -154,111 +154,76 @@ let apply_rule rule target =
   try
     let match_result = match_pattern rule.redex target in
 
-    (* Create new nodes based on reactum, trying to preserve IDs from matched nodes *)
-    let matched_node_ids = List.map snd match_result.node_mapping in
-    let reactum_node_list = NodeMap.bindings rule.reactum.bigraph.place.nodes in
+    (* Build mapping from redex node IDs to matched target node IDs *)
+    let redex_to_target_map = 
+      List.fold_left (fun acc (redex_id, target_id) ->
+        NodeMap.add redex_id target_id acc
+      ) NodeMap.empty match_result.node_mapping in
 
-    let reactum_nodes_with_preserved_ids =
-      let rec assign_ids reactum_nodes matched_ids acc =
-        match (reactum_nodes, matched_ids) with
-        | [], _ -> acc
-        | (_, reactum_node) :: rest_reactum, original_id :: rest_matched ->
-            (* Use original ID from matched target node *)
-            let preserved_node =
-              {
-                reactum_node with
-                id = original_id;
-                ports =
-                  List.mapi
-                    (fun i _ -> (original_id * 1000) + i)
-                    reactum_node.ports;
-              }
-            in
-            assign_ids rest_reactum rest_matched
-              (NodeMap.add original_id preserved_node acc)
-        | (_, reactum_node) :: rest_reactum, [] ->
-            (* No more original IDs, generate fresh ones *)
-            let fresh_id =
-              NodeMap.cardinal target.bigraph.place.nodes
-              + 1000 + NodeMap.cardinal acc
-            in
-            let fresh_node =
-              {
-                reactum_node with
-                id = fresh_id;
-                ports =
-                  List.mapi
-                    (fun i _ -> (fresh_id * 1000) + i)
-                    reactum_node.ports;
-              }
-            in
-            assign_ids rest_reactum [] (NodeMap.add fresh_id fresh_node acc)
+    (* Start with ALL nodes from the original target (preserving their controls) *)
+    let result_nodes = ref target.bigraph.place.nodes in
+    let result_parent_map = ref target.bigraph.place.parent_map in
+
+    (* Update parent relationships based on reactum structure *)
+    NodeMap.iter (fun reactum_child_id reactum_parent_id ->
+      (* Find corresponding nodes in the target *)
+      let target_child_id = 
+        (* Find which redex node corresponds to this reactum node *)
+        let corresponding_redex_id = 
+          (* This is tricky - we need to match based on structure/control *)
+          (* For now, assume nodes with same control correspond *)
+          let reactum_node = NodeMap.find reactum_child_id rule.reactum.bigraph.place.nodes in
+          NodeMap.fold (fun redex_id redex_node acc ->
+            if redex_node.control.name = reactum_node.control.name then redex_id else acc
+          ) rule.redex.bigraph.place.nodes (-1) in
+        
+        if corresponding_redex_id <> -1 then
+          try NodeMap.find corresponding_redex_id redex_to_target_map
+          with Not_found -> reactum_child_id
+        else reactum_child_id
       in
-      assign_ids reactum_node_list matched_node_ids NodeMap.empty
-    in
-
-    (* Merge context nodes with reactum nodes *)
-    let new_nodes =
-      NodeMap.fold NodeMap.add match_result.context.bigraph.place.nodes
-        reactum_nodes_with_preserved_ids
-    in
-
-    (* Create parent map by combining context parent map with reactum structure, mapped to preserved IDs *)
-    let original_to_preserved_id =
-      let reactum_original_nodes =
-        NodeMap.bindings rule.reactum.bigraph.place.nodes
+      
+      let target_parent_id = 
+        let reactum_parent = NodeMap.find reactum_parent_id rule.reactum.bigraph.place.nodes in
+        let corresponding_redex_id = 
+          NodeMap.fold (fun redex_id redex_node acc ->
+            if redex_node.control.name = reactum_parent.control.name then redex_id else acc
+          ) rule.redex.bigraph.place.nodes (-1) in
+        
+        if corresponding_redex_id <> -1 then
+          try NodeMap.find corresponding_redex_id redex_to_target_map
+          with Not_found -> reactum_parent_id
+        else reactum_parent_id
       in
-      let preserved_nodes = NodeMap.bindings reactum_nodes_with_preserved_ids in
-      List.combine
-        (List.map fst reactum_original_nodes)
-        (List.map fst preserved_nodes)
-    in
+      
+      (* Update the parent relationship *)
+      result_parent_map := NodeMap.add target_child_id target_parent_id !result_parent_map
+    ) rule.reactum.bigraph.place.parent_map;
 
-    let reactum_parent_map_fresh =
-      NodeMap.fold
-        (fun child_id parent_id acc ->
-          match
-            ( List.assoc_opt child_id original_to_preserved_id,
-              List.assoc_opt parent_id original_to_preserved_id )
-          with
-          | Some preserved_child, Some preserved_parent ->
-              NodeMap.add preserved_child preserved_parent acc
-          | _ -> acc (* Skip if mapping not found *))
-        rule.reactum.bigraph.place.parent_map NodeMap.empty
-    in
+    (* Remove parent mappings that should no longer exist *)
+    NodeMap.iter (fun redex_child_id _ ->
+      (* If this parent relationship doesn't exist in reactum, remove it *)
+      let should_remove = 
+        not (NodeMap.exists (fun _ _ -> true) rule.reactum.bigraph.place.parent_map) in
+      if should_remove then
+        let target_child_id = NodeMap.find redex_child_id redex_to_target_map in
+        result_parent_map := NodeMap.remove target_child_id !result_parent_map
+    ) rule.redex.bigraph.place.parent_map;
 
-    let new_parent_map =
-      NodeMap.fold NodeMap.add match_result.context.bigraph.place.parent_map
-        reactum_parent_map_fresh
-    in
+    let new_place = {
+      nodes = !result_nodes;
+      parent_map = !result_parent_map;
+      sites = target.bigraph.place.sites;
+      regions = target.bigraph.place.regions;
+      site_parent_map = target.bigraph.place.site_parent_map;
+      region_nodes = target.bigraph.place.region_nodes;
+    } in
 
-    let new_place =
-      {
-        nodes = new_nodes;
-        parent_map = new_parent_map;
-        sites = match_result.context.bigraph.place.sites;
-        regions = match_result.context.bigraph.place.regions;
-        site_parent_map = match_result.context.bigraph.place.site_parent_map;
-        region_nodes = match_result.context.bigraph.place.region_nodes;
-      }
-    in
-
-    let new_link =
-      {
-        edges = match_result.context.bigraph.link.edges;
-        outer_names = target.bigraph.link.outer_names;
-        inner_names = target.bigraph.link.inner_names;
-        linking = match_result.context.bigraph.link.linking;
-      }
-    in
-
-    let result_bigraph =
-      {
-        place = new_place;
-        link = new_link;
-        signature = target.bigraph.signature;
-      }
-    in
+    let result_bigraph = {
+      place = new_place;
+      link = target.bigraph.link;
+      signature = target.bigraph.signature;
+    } in
 
     Some { target with bigraph = result_bigraph }
   with NoMatch _ -> None

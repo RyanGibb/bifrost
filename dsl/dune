@@ -1,0 +1,4 @@
+(executable
+ (public_name bridge)
+ (name bridge)
+ (libraries bifrost capnp capnp.unix))
