@@ -10,7 +10,7 @@ redex = Bigraph([
 reactum = Bigraph([
     Node("Room", id=0, arity=0),
     Node("Room", id=2, arity=0, children=[
-        Node("Person", id=1, arity=0)
+        Node("Person", id=6, arity=0)
     ])
 ])
 

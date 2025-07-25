@@ -90,7 +90,7 @@ let () =
 
   (match apply_rule rule target with
   | Some result_state ->
-      Printf.printf "Movement rule applied successfully!\n";
+      Printf.printf "Rule applied successfully!\n";
       Printf.printf "Result state:\n";
       print_bigraph result_state.bigraph;
-  | None -> Printf.printf "Movement rule could not be applied\n");
+  | None -> Printf.printf "Rule could not be applied\n");
