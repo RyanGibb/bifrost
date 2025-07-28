@@ -182,7 +182,7 @@ let validate_bigraph bigraph =
   validate_ports () && validate_signature () && validate_parent_map ()
 
 (* Printing with spatial hierarchy *)
-let print_bigraph bigraph =
+let _print_bigraph bigraph =
   Printf.printf "Bigraph:\n";
   Printf.printf "  Nodes: %d\n" (get_node_count bigraph);
   Printf.printf "  Edges: %d\n" (get_edge_count bigraph);
@@ -210,3 +210,37 @@ let clone_node node new_id =
     List.map (fun p -> p + ((new_id - node.id) * 1000)) node.ports
   in
   { node with id = new_id; ports = new_ports }
+  
+(* --- printing with properties --------------------------------------- *)
+let print_property = function
+  | Bool b   -> Printf.printf "%b" b
+  | Int n    -> Printf.printf "%d" n
+  | Float f  -> Printf.printf "%.2f" f
+  | String s -> Printf.printf "\"%s\"" s
+  | Color (r,g,b) -> Printf.printf "rgb(%d,%d,%d)" r g b
+
+let print_properties = function
+  | None | Some [] -> ()
+  | Some props ->
+      Printf.printf " [";
+      List.iteri
+        (fun i (k,v) ->
+            if i > 0 then Printf.printf ", ";
+            Printf.printf "%s=" k; print_property v)
+        props;
+      Printf.printf "]"
+
+let rec print_node_hierarchy bg indent node_id =
+  match get_node bg node_id with
+  | None -> ()
+  | Some node ->
+      Printf.printf "%sNode %d: %s" indent node_id node.control.name;
+      print_properties node.properties;
+      Printf.printf "\n";
+      let children = get_children bg node_id in
+      NodeSet.iter (print_node_hierarchy bg (indent ^ "  ")) children
+
+let print_bigraph bg =
+  Printf.printf "Bigraph: %d nodes\n" (get_node_count bg);
+  let roots = get_root_nodes bg in
+  NodeSet.iter (print_node_hierarchy bg "  ") roots

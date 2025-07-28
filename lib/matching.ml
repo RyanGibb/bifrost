@@ -5,19 +5,13 @@ type pattern = bigraph_with_interface
 type reaction_rule = { redex : pattern; reactum : pattern; name : string }
 
 type match_result = {
-  context : bigraph_with_interface;
-  parameter : bigraph_with_interface;
-  node_mapping : (node_id * node_id) list;
-      (* (pattern_node_id, target_node_id) *)
+  context       : bigraph_with_interface;
+  parameter     : bigraph_with_interface;
+  node_mapping  : (node_id * node_id) list;  (* redex → target *)
 }
 
 exception NoMatch of string
 exception InvalidRule of string
-
-(* Check if two nodes are structurally compatible *)
-let nodes_compatible pattern_node target_node =
-  pattern_node.control.name = target_node.control.name
-  && pattern_node.control.arity = target_node.control.arity
 
 (* Find all nodes in target that match a given control *)
 let find_matching_nodes target_bigraph (control_spec : control) =
@@ -35,203 +29,188 @@ let has_containment_relationship target_bg parent_id child_id =
   match get_parent target_bg parent_id with
   | Some actual_parent -> actual_parent = child_id
   | None -> false
+  
+(* ------------------------------------------------------------------ *)
+(*  Node compatibility :                                              *)
+(*   – control must match                                             *)
+(*   – if the redex carries a unique-id, the target must carry SAME   *)
+(* ------------------------------------------------------------------ *)
+let node_uid bg n_id =
+  match bg.id_graph with
+  | None -> None
+  | Some l ->
+      List.find_opt (fun (_,nid) -> nid = n_id) l |> Option.map fst
 
-(* Try to find a structural match for the pattern in the target *)
+let nodes_compatible pattern_bg pattern_node target_bg target_node =
+  pattern_node.control = target_node.control &&
+  match node_uid pattern_bg pattern_node.id with
+  | None -> true                 (* no id constraint *)
+  | Some uid -> node_uid target_bg target_node.id = Some uid
+
+(* candidates inside target that are compatible with given pattern node *)
+let candidate_nodes pattern_bg target_bg pattern_node =
+  NodeMap.fold
+    (fun tid tnode acc ->
+        if nodes_compatible pattern_bg pattern_node target_bg tnode
+        then tid :: acc else acc)
+    target_bg.place.nodes []
+
+(* spatial consistency helper *)
+let parent_ok mapping pattern_bg target_bg p_child t_child =
+  match get_parent pattern_bg p_child with
+  | None -> get_parent target_bg t_child = None
+  | Some p_parent ->
+      let t_parent =
+        List.assoc_opt p_parent mapping    (* mapped already? *)
+      in
+      match t_parent with
+      | None -> true                       (* parent not mapped yet *)
+      | Some t_parent_id ->
+          get_parent target_bg t_child = Some t_parent_id
+
+(* recursive back-tracking matcher *)
 let find_structural_match pattern_bg target_bg =
-  let pattern_nodes = NodeMap.bindings pattern_bg.place.nodes in
-  let rec try_match_nodes remaining_pattern acc_mapping =
-    match remaining_pattern with
-    | [] -> Some acc_mapping (* All pattern nodes matched *)
-    | (pattern_id, pattern_node) :: rest ->
-        let candidates = find_matching_nodes target_bg pattern_node.control in
-        let rec try_candidates = function
-          | [] -> None (* No valid candidate found *)
-          | target_id :: other_candidates ->
-              if
-                List.exists
-                  (fun (_, mapped_id) -> mapped_id = target_id)
-                  acc_mapping
-              then
-                try_candidates other_candidates (* Target node already used *)
-              else
-                let new_mapping = (pattern_id, target_id) :: acc_mapping in
-                (* Check if spatial relationships are preserved *)
-                let spatial_ok =
-                  match get_parent pattern_bg pattern_id with
-                  | None ->
-                      get_parent target_bg target_id = None (* Both at root *)
-                  | Some pattern_parent_id -> (
-                      match
-                        List.find_opt
-                          (fun (p_id, _) -> p_id = pattern_parent_id)
-                          new_mapping
-                      with
-                      | None ->
-                          true (* Parent not yet mapped, assume ok for now *)
-                      | Some (_, target_parent_id) ->
-                          get_parent target_bg target_id = Some target_parent_id
-                      )
-                in
-                if spatial_ok then
-                  match try_match_nodes rest new_mapping with
-                  | Some final_mapping -> Some final_mapping
-                  | None -> try_candidates other_candidates
-                else try_candidates other_candidates
+  let pat_nodes = NodeMap.bindings pattern_bg.place.nodes in
+  let rec aux todo mapping =
+    match todo with
+    | [] -> Some mapping
+    | (pid,pnode) :: rest ->
+        let rec try_cands = function
+          | [] -> None
+          | t_id :: more ->
+              if List.exists (fun (_,tid) -> tid = t_id) mapping
+              then try_cands more
+              else if parent_ok mapping pattern_bg target_bg pid t_id then
+                match aux rest ((pid,t_id)::mapping) with
+                | Some m -> Some m
+                | None   -> try_cands more
+              else try_cands more
         in
-        try_candidates candidates
+        try_cands (candidate_nodes pattern_bg target_bg pnode)
   in
-  try_match_nodes pattern_nodes []
+  aux pat_nodes []
 
+(* ------------------------------------------------------------------ *)
+(*  PUBLIC matching API                                               *)
+(* ------------------------------------------------------------------ *)
 let match_pattern pattern target =
-  (* First check if the pattern can be structurally matched *)
   match find_structural_match pattern.bigraph target.bigraph with
-  | None -> raise (NoMatch "No structural match found")
+  | None -> raise (NoMatch "no structural match")
   | Some node_mapping ->
-      (* Extract the context (target without matched nodes) *)
-      let matched_target_nodes = List.map snd node_mapping in
+      (* build trivial context (everything unmatched) – simplified *)
+      let matched = List.map snd node_mapping in
       let remaining_nodes =
-        NodeMap.filter
-          (fun id _node -> not (List.mem id matched_target_nodes))
+        NodeMap.filter (fun id _ -> not (List.mem id matched))
           target.bigraph.place.nodes
       in
-
-      (* Create context place graph - keep parents even if their children were matched *)
-      let context_parent_map =
-        NodeMap.filter
-          (fun child_id _parent_id ->
-            not (List.mem child_id matched_target_nodes))
-          target.bigraph.place.parent_map
-      in
-
-      let context_place =
-        {
-          nodes = remaining_nodes;
-          parent_map = context_parent_map;
-          sites = target.bigraph.place.sites;
-          regions = target.bigraph.place.regions;
-          site_parent_map = target.bigraph.place.site_parent_map;
-          region_nodes = target.bigraph.place.region_nodes;
-        }
-      in
-
-      let context_link =
-        {
-          edges = target.bigraph.link.edges;
-          (* Simplified - should filter matched edges *)
-          outer_names = target.bigraph.link.outer_names;
-          inner_names = target.bigraph.link.inner_names;
-          linking = target.bigraph.link.linking;
-        }
-      in
-
-      let context_bigraph =
-        {
-          place = context_place;
-          link = context_link;
-          signature = target.bigraph.signature;
-        }
-      in
-
-      let parameter_bigraph = empty_bigraph [] in
-
+      let context_place = { target.bigraph.place with nodes = remaining_nodes } in
+      let context_bigraph = { target.bigraph with place = context_place } in
       {
         context =
-          {
-            bigraph = context_bigraph;
-            inner = target.inner;
-            outer = target.outer;
-          };
+          { bigraph = context_bigraph; inner = target.inner; outer = target.outer };
         parameter =
-          {
-            bigraph = parameter_bigraph;
-            inner = { sites = 0; names = [] };
-            outer = { sites = 0; names = [] };
-          };
+          { bigraph = empty_bigraph []; inner = {sites=0;names=[]}; outer = {sites=0;names=[]} };
         node_mapping;
       }
 
+(* ------------------------------------------------------------------ *)
+(*  Rule application (same naive implementation as before)            *)
+(* ------------------------------------------------------------------ *)
 let apply_rule rule target =
   try
     let match_result = match_pattern rule.redex target in
 
-    (* Build mapping from redex node IDs to matched target node IDs *)
-    let redex_to_target_map = 
-      List.fold_left (fun acc (redex_id, target_id) ->
-        NodeMap.add redex_id target_id acc
-      ) NodeMap.empty match_result.node_mapping in
+    (* 1. Get redex → target mapping as lookup *)
+    let redex_to_target = match_result.node_mapping in
 
-    (* Start with ALL nodes from the original target (preserving their controls) *)
-    let result_nodes = ref target.bigraph.place.nodes in
-    let result_parent_map = ref target.bigraph.place.parent_map in
+    (* 2. Build reactum nodes where UIDs in redex are preserved *)
+    let reactum_nodes_preserving_ids =
+      NodeMap.fold (fun rid rnode acc ->
+        match node_uid rule.reactum.bigraph rid with
+        | Some uid ->
+            (* If this node existed in the redex, preserve its mapped ID *)
+            let preserved_id =
+              rule.redex.bigraph.place.nodes
+              |> NodeMap.bindings
+              |> List.find_map (fun (rid_redex, r) ->
+                if node_uid rule.redex.bigraph r.id = Some uid then
+                  List.assoc_opt rid_redex redex_to_target
+                else None)
+            in
+            (match preserved_id with
+            | Some tid ->
+                let node' = { rnode with id = tid } in
+                NodeMap.add tid node' acc
+            | None ->
+                NodeMap.add rid rnode acc)  (* fallback to original reactum ID *)
+        | None ->
+            NodeMap.add rid rnode acc  (* no UID, keep original *)
+      ) rule.reactum.bigraph.place.nodes NodeMap.empty
+    in
 
-    (* Update parent relationships based on reactum structure *)
-    NodeMap.iter (fun reactum_child_id reactum_parent_id ->
-      (* Find corresponding nodes in the target *)
-      let target_child_id = 
-        (* Find which redex node corresponds to this reactum node *)
-        let corresponding_redex_id = 
-          (* This is tricky - we need to match based on structure/control *)
-          (* For now, assume nodes with same control correspond *)
-          let reactum_node = NodeMap.find reactum_child_id rule.reactum.bigraph.place.nodes in
-          NodeMap.fold (fun redex_id redex_node acc ->
-            if redex_node.control.name = reactum_node.control.name then redex_id else acc
-          ) rule.redex.bigraph.place.nodes (-1) in
-        
-        if corresponding_redex_id <> -1 then
-          try NodeMap.find corresponding_redex_id redex_to_target_map
-          with Not_found -> reactum_child_id
-        else reactum_child_id
-      in
-      
-      let target_parent_id = 
-        let reactum_parent = NodeMap.find reactum_parent_id rule.reactum.bigraph.place.nodes in
-        let corresponding_redex_id = 
-          NodeMap.fold (fun redex_id redex_node acc ->
-            if redex_node.control.name = reactum_parent.control.name then redex_id else acc
-          ) rule.redex.bigraph.place.nodes (-1) in
-        
-        if corresponding_redex_id <> -1 then
-          try NodeMap.find corresponding_redex_id redex_to_target_map
-          with Not_found -> reactum_parent_id
-        else reactum_parent_id
-      in
-      
-      (* Update the parent relationship *)
-      result_parent_map := NodeMap.add target_child_id target_parent_id !result_parent_map
-    ) rule.reactum.bigraph.place.parent_map;
+    (* 3. Merge with context (unmatched) nodes *)
+    let new_nodes =
+      NodeMap.union (fun _ _ r -> Some r)
+        match_result.context.bigraph.place.nodes
+        reactum_nodes_preserving_ids
+    in
 
-    (* Remove parent mappings that should no longer exist *)
-    NodeMap.iter (fun redex_child_id _ ->
-      (* If this parent relationship doesn't exist in reactum, remove it *)
-      let should_remove = 
-        not (NodeMap.exists (fun _ _ -> true) rule.reactum.bigraph.place.parent_map) in
-      if should_remove then
-        let target_child_id = NodeMap.find redex_child_id redex_to_target_map in
-        result_parent_map := NodeMap.remove target_child_id !result_parent_map
-    ) rule.redex.bigraph.place.parent_map;
+    (* 4. Update parent map based on reactum (using preserved IDs) *)
+    let preserved_id_map =
+      NodeMap.fold (fun old_id node acc -> (old_id, node.id) :: acc)
+        reactum_nodes_preserving_ids []
+    in
 
+    let reactum_parent_map_preserved =
+      NodeMap.fold (fun child parent acc ->
+        match List.assoc_opt child preserved_id_map,
+              List.assoc_opt parent preserved_id_map
+        with
+        | Some new_child, Some new_parent ->
+            NodeMap.add new_child new_parent acc
+        | _ -> acc)
+        rule.reactum.bigraph.place.parent_map NodeMap.empty
+    in
+
+    let new_parent_map =
+      NodeMap.union (fun _ _ r -> Some r)
+        match_result.context.bigraph.place.parent_map
+        reactum_parent_map_preserved
+    in
+
+    (* 5. Assemble new place graph *)
     let new_place = {
-      nodes = !result_nodes;
-      parent_map = !result_parent_map;
-      sites = target.bigraph.place.sites;
-      regions = target.bigraph.place.regions;
-      site_parent_map = target.bigraph.place.site_parent_map;
-      region_nodes = target.bigraph.place.region_nodes;
+      nodes = new_nodes;
+      parent_map = new_parent_map;
+      sites = match_result.context.bigraph.place.sites;
+      regions = match_result.context.bigraph.place.regions;
+      site_parent_map = match_result.context.bigraph.place.site_parent_map;
+      region_nodes = match_result.context.bigraph.place.region_nodes;
     } in
 
-    let result_bigraph = {
+    let new_bigraph = {
       place = new_place;
-      link = target.bigraph.link;
+      link = match_result.context.bigraph.link;
       signature = target.bigraph.signature;
+      id_graph = target.bigraph.id_graph;  (* unchanged *)
     } in
 
-    Some { target with bigraph = result_bigraph }
+    Some { target with bigraph = new_bigraph }
+
   with NoMatch _ -> None
 
-let create_rule name redex reactum = { redex; reactum; name }
+(* ------------------------------------------------------------------ *)
+(*  Rule repository helpers                                           *)
+(* ------------------------------------------------------------------ *)
+type rule_repo = reaction_rule list ref
+let create_repo () = ref []
+let add_rule repo rule = repo := rule :: !repo
+let rules repo = !repo
 
 let can_apply rule target =
   try
     let _ = match_pattern rule.redex target in
     true
   with NoMatch _ -> false
+
+let create_rule name redex reactum = { redex; reactum; name }

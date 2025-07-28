@@ -15,8 +15,42 @@ module type S = sig
     type builder_array_t
     type pointer_t = ro MessageWrapper.Slice.t option
     val of_pointer : pointer_t -> 'a reader_t
+    module PropertyValue : sig
+      type struct_t = [`PropertyValue_e974cece53d236b9]
+      type t = struct_t reader_t
+      module ColorVal : sig
+        type struct_t = [`ColorVal_89ecb5085e5b25be]
+        type t = struct_t reader_t
+        val r_get : t -> int
+        val g_get : t -> int
+        val b_get : t -> int
+        val of_message : 'cap message_t -> t
+        val of_builder : struct_t builder_t -> t
+      end
+      type unnamed_union_t =
+        | BoolVal of bool
+        | IntVal of int32
+        | FloatVal of float
+        | StringVal of string
+        | ColorVal of ColorVal.t
+        | Undefined of int
+      val get : t -> unnamed_union_t
+      val of_message : 'cap message_t -> t
+      val of_builder : struct_t builder_t -> t
+    end
+    module Property : sig
+      type struct_t = [`Property_e8605ea33817ce11]
+      type t = struct_t reader_t
+      val has_key : t -> bool
+      val key_get : t -> string
+      val has_value : t -> bool
+      val value_get : t -> PropertyValue.t
+      val value_get_pipelined : struct_t MessageWrapper.StructRef.t -> PropertyValue.struct_t MessageWrapper.StructRef.t
+      val of_message : 'cap message_t -> t
+      val of_builder : struct_t builder_t -> t
+    end
     module Node : sig
-      type struct_t = [`Node_e5ee33d65d702c6b]
+      type struct_t = [`Node_b4329d9b7841bafa]
       type t = struct_t reader_t
       val id_get : t -> int32
       val id_get_int_exn : t -> int
@@ -30,11 +64,25 @@ module type S = sig
       val ports_get : t -> (ro, int32, array_t) Capnp.Array.t
       val ports_get_list : t -> int32 list
       val ports_get_array : t -> int32 array
+      val has_properties : t -> bool
+      val properties_get : t -> (ro, Property.t, array_t) Capnp.Array.t
+      val properties_get_list : t -> Property.t list
+      val properties_get_array : t -> Property.t array
+      val of_message : 'cap message_t -> t
+      val of_builder : struct_t builder_t -> t
+    end
+    module IdMapping : sig
+      type struct_t = [`IdMapping_919536869ef13f98]
+      type t = struct_t reader_t
+      val has_unique_id : t -> bool
+      val unique_id_get : t -> string
+      val node_id_get : t -> int32
+      val node_id_get_int_exn : t -> int
       val of_message : 'cap message_t -> t
       val of_builder : struct_t builder_t -> t
     end
     module Bigraph : sig
-      type struct_t = [`Bigraph_8e14203ffb69382c]
+      type struct_t = [`Bigraph_93662cd6bd715776]
       type t = struct_t reader_t
       val has_nodes : t -> bool
       val nodes_get : t -> (ro, Node.t, array_t) Capnp.Array.t
@@ -46,11 +94,15 @@ module type S = sig
       val names_get : t -> (ro, string, array_t) Capnp.Array.t
       val names_get_list : t -> string list
       val names_get_array : t -> string array
+      val has_id_mappings : t -> bool
+      val id_mappings_get : t -> (ro, IdMapping.t, array_t) Capnp.Array.t
+      val id_mappings_get_list : t -> IdMapping.t list
+      val id_mappings_get_array : t -> IdMapping.t array
       val of_message : 'cap message_t -> t
       val of_builder : struct_t builder_t -> t
     end
     module Rule : sig
-      type struct_t = [`Rule_d50f45be1d2b21d0]
+      type struct_t = [`Rule_8c64a3d34f8e5735]
       type t = struct_t reader_t
       val has_name : t -> bool
       val name_get : t -> string
@@ -69,8 +121,63 @@ module type S = sig
     type array_t = Reader.builder_array_t
     type reader_array_t = Reader.array_t
     type pointer_t = rw MessageWrapper.Slice.t
+    module PropertyValue : sig
+      type struct_t = [`PropertyValue_e974cece53d236b9]
+      type t = struct_t builder_t
+      module ColorVal : sig
+        type struct_t = [`ColorVal_89ecb5085e5b25be]
+        type t = struct_t builder_t
+        val r_get : t -> int
+        val r_set_exn : t -> int -> unit
+        val g_get : t -> int
+        val g_set_exn : t -> int -> unit
+        val b_get : t -> int
+        val b_set_exn : t -> int -> unit
+        val of_message : rw message_t -> t
+        val to_message : t -> rw message_t
+        val to_reader : t -> struct_t reader_t
+        val init_root : ?message_size:int -> unit -> t
+        val init_pointer : pointer_t -> t
+      end
+      type unnamed_union_t =
+        | BoolVal of bool
+        | IntVal of int32
+        | FloatVal of float
+        | StringVal of string
+        | ColorVal of ColorVal.t
+        | Undefined of int
+      val get : t -> unnamed_union_t
+      val bool_val_set : t -> bool -> unit
+      val int_val_set : t -> int32 -> unit
+      val int_val_set_int_exn : t -> int -> unit
+      val float_val_set : t -> float -> unit
+      val string_val_set : t -> string -> unit
+      val color_val_init : t -> ColorVal.t
+      val of_message : rw message_t -> t
+      val to_message : t -> rw message_t
+      val to_reader : t -> struct_t reader_t
+      val init_root : ?message_size:int -> unit -> t
+      val init_pointer : pointer_t -> t
+    end
+    module Property : sig
+      type struct_t = [`Property_e8605ea33817ce11]
+      type t = struct_t builder_t
+      val has_key : t -> bool
+      val key_get : t -> string
+      val key_set : t -> string -> unit
+      val has_value : t -> bool
+      val value_get : t -> PropertyValue.t
+      val value_set_reader : t -> PropertyValue.struct_t reader_t -> PropertyValue.t
+      val value_set_builder : t -> PropertyValue.t -> PropertyValue.t
+      val value_init : t -> PropertyValue.t
+      val of_message : rw message_t -> t
+      val to_message : t -> rw message_t
+      val to_reader : t -> struct_t reader_t
+      val init_root : ?message_size:int -> unit -> t
+      val init_pointer : pointer_t -> t
+    end
     module Node : sig
-      type struct_t = [`Node_e5ee33d65d702c6b]
+      type struct_t = [`Node_b4329d9b7841bafa]
       type t = struct_t builder_t
       val id_get : t -> int32
       val id_get_int_exn : t -> int
@@ -95,6 +202,30 @@ module type S = sig
       val ports_set_list : t -> int32 list -> (rw, int32, array_t) Capnp.Array.t
       val ports_set_array : t -> int32 array -> (rw, int32, array_t) Capnp.Array.t
       val ports_init : t -> int -> (rw, int32, array_t) Capnp.Array.t
+      val has_properties : t -> bool
+      val properties_get : t -> (rw, Property.t, array_t) Capnp.Array.t
+      val properties_get_list : t -> Property.t list
+      val properties_get_array : t -> Property.t array
+      val properties_set : t -> (rw, Property.t, array_t) Capnp.Array.t -> (rw, Property.t, array_t) Capnp.Array.t
+      val properties_set_list : t -> Property.t list -> (rw, Property.t, array_t) Capnp.Array.t
+      val properties_set_array : t -> Property.t array -> (rw, Property.t, array_t) Capnp.Array.t
+      val properties_init : t -> int -> (rw, Property.t, array_t) Capnp.Array.t
+      val of_message : rw message_t -> t
+      val to_message : t -> rw message_t
+      val to_reader : t -> struct_t reader_t
+      val init_root : ?message_size:int -> unit -> t
+      val init_pointer : pointer_t -> t
+    end
+    module IdMapping : sig
+      type struct_t = [`IdMapping_919536869ef13f98]
+      type t = struct_t builder_t
+      val has_unique_id : t -> bool
+      val unique_id_get : t -> string
+      val unique_id_set : t -> string -> unit
+      val node_id_get : t -> int32
+      val node_id_get_int_exn : t -> int
+      val node_id_set : t -> int32 -> unit
+      val node_id_set_int_exn : t -> int -> unit
       val of_message : rw message_t -> t
       val to_message : t -> rw message_t
       val to_reader : t -> struct_t reader_t
@@ -102,7 +233,7 @@ module type S = sig
       val init_pointer : pointer_t -> t
     end
     module Bigraph : sig
-      type struct_t = [`Bigraph_8e14203ffb69382c]
+      type struct_t = [`Bigraph_93662cd6bd715776]
       type t = struct_t builder_t
       val has_nodes : t -> bool
       val nodes_get : t -> (rw, Node.t, array_t) Capnp.Array.t
@@ -124,6 +255,14 @@ module type S = sig
       val names_set_list : t -> string list -> (rw, string, array_t) Capnp.Array.t
       val names_set_array : t -> string array -> (rw, string, array_t) Capnp.Array.t
       val names_init : t -> int -> (rw, string, array_t) Capnp.Array.t
+      val has_id_mappings : t -> bool
+      val id_mappings_get : t -> (rw, IdMapping.t, array_t) Capnp.Array.t
+      val id_mappings_get_list : t -> IdMapping.t list
+      val id_mappings_get_array : t -> IdMapping.t array
+      val id_mappings_set : t -> (rw, IdMapping.t, array_t) Capnp.Array.t -> (rw, IdMapping.t, array_t) Capnp.Array.t
+      val id_mappings_set_list : t -> IdMapping.t list -> (rw, IdMapping.t, array_t) Capnp.Array.t
+      val id_mappings_set_array : t -> IdMapping.t array -> (rw, IdMapping.t, array_t) Capnp.Array.t
+      val id_mappings_init : t -> int -> (rw, IdMapping.t, array_t) Capnp.Array.t
       val of_message : rw message_t -> t
       val to_message : t -> rw message_t
       val to_reader : t -> struct_t reader_t
@@ -131,7 +270,7 @@ module type S = sig
       val init_pointer : pointer_t -> t
     end
     module Rule : sig
-      type struct_t = [`Rule_d50f45be1d2b21d0]
+      type struct_t = [`Rule_8c64a3d34f8e5735]
       type t = struct_t builder_t
       val has_name : t -> bool
       val name_get : t -> string
