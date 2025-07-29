@@ -1,4 +1,3 @@
-open Bifrost
 open Bifrost.Bigraph
 open Bifrost.Utils
 open Bifrost.Matching
