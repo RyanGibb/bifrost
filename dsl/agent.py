@@ -6,48 +6,100 @@ import subprocess
     
 import anthropic
 
-class ClaudeLLM:
-    def __init__(self, model="claude-3-7-sonnet-latest"):
-        self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+class LocalLLM:
+    def __init__(self, model="qwen2.5-coder:3b"):
         self.model = model
+        self.system_prompt = """
+        You are a Python code generation assistant. Your task is to generate only valid Python code — no explanations.
+
+        You are using a DSL to define reaction rules for bigraphs.
+
+        Here's how the DSL works:
+
+        ```python
+        from bigraph_dsl import Node, Bigraph, Rule
+
+        # This is an example rule
+        redex = Bigraph([
+            Node("Room", id=0, children=[
+                Node("Person", id=1),
+                Node("Light", id=2, properties={"power": False}),
+                ])
+            ])
+
+        reactum = Bigraph([
+            Node("Room", id=0, children=[
+                Node("Person", id=1),
+                Node("Light", id=2, properties={"power": True}),
+                ])
+            ])
+        turn_on_light = Rule("turn_on_light", redex, reactum)
+        turn_on_light.save("rule.capnp")
+        ```
+        """
 
     def chat(self, user_prompt):
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=1024,
-            temperature=0.2,
-            system="""
-            You are a Python code generation assistant. Your task is to generate only valid Python code — no explanations.
-
-            You are using a DSL to define reaction rules for bigraphs.
-
-            Here's how the DSL works:
-
-            ```python
-            from bigraph_dsl import Node, Bigraph, Rule
-
-            # This is an example rule
-            redex = Bigraph([
-                Node("Room", id=0, children=[
-                    Node("Person", id=1),
-                    Node("Light", id=2, properties={"power": False}),
-                    ])
-                ])
-
-            reactum = Bigraph([
-                Node("Room", id=0, children=[
-                    Node("Person", id=1),
-                    Node("Light", id=2, properties={"power": True}),
-                    ])
-                ])
-            turn_on_light = Rule("turn_on_light", redex, reactum)
-            turn_on_light.save("rule.capnp")
-            """,
-            messages=[
-                {"role": "user", "content": user_prompt}
-            ]
+        # Merge system and user prompt exactly as Claude did
+        prompt = f"{self.system_prompt.strip()}\n\nUser:\n{user_prompt.strip()}\n\nAssistant:"
+        
+        # Call Ollama locally
+        proc = subprocess.run(
+            ["ollama", "run", self.model],
+            input=prompt,
+            capture_output=True,
+            text=True
         )
-        return response.content[0].text.strip()
+
+        output = proc.stdout.strip()
+
+        # Remove markdown fences if model outputs them
+        if "```" in output:
+            output = re.sub(r"^```(?:python)?\n([\s\S]*?)```$", r"\1", output.strip(), flags=re.MULTILINE)
+
+        return output
+
+# class ClaudeLLM:
+#     def __init__(self, model="claude-3-7-sonnet-latest"):
+#         self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+#         self.model = model
+
+#     def chat(self, user_prompt):
+#         response = self.client.messages.create(
+#             model=self.model,
+#             max_tokens=1024,
+#             temperature=0.2,
+#             system="""
+#             You are a Python code generation assistant. Your task is to generate only valid Python code — no explanations.
+
+#             You are using a DSL to define reaction rules for bigraphs.
+
+#             Here's how the DSL works:
+
+#             ```python
+#             from bigraph_dsl import Node, Bigraph, Rule
+
+#             # This is an example rule
+#             redex = Bigraph([
+#                 Node("Room", id=0, children=[
+#                     Node("Person", id=1),
+#                     Node("Light", id=2, properties={"power": False}),
+#                     ])
+#                 ])
+
+#             reactum = Bigraph([
+#                 Node("Room", id=0, children=[
+#                     Node("Person", id=1),
+#                     Node("Light", id=2, properties={"power": True}),
+#                     ])
+#                 ])
+#             turn_on_light = Rule("turn_on_light", redex, reactum)
+#             turn_on_light.save("rule.capnp")
+#             """,
+#             messages=[
+#                 {"role": "user", "content": user_prompt}
+#             ]
+#         )
+#         return response.content[0].text.strip()
 
 def print_bigraph(bg: Bigraph):
     for node, parent in bg._flatten_nodes():
@@ -91,6 +143,8 @@ def main():
 
             local_env = {}
             exec(generated_code, globals(), local_env)
+            with open("rule.py", "w") as file:
+                file.write(generated_code)
 
             print(generated_code)
 
@@ -107,5 +161,5 @@ def main():
             print(f"❌ Error: {e}")
 
 if __name__ == "__main__":
-    llm = ClaudeLLM()
+    llm = LocalLLM()
     main()

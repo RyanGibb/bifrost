@@ -120,56 +120,38 @@ let apply_rule rule target =
   try
     let match_result = match_pattern rule.redex target in
 
-    (* 1. Get redex → target mapping as lookup *)
+    (* 1. Apply reactum over redex match IDs *)
     let redex_to_target = match_result.node_mapping in
 
-    (* 2. Build reactum nodes where UIDs in redex are preserved *)
-    let reactum_nodes_preserving_ids =
+    let reactum_nodes_with_preserved_ids =
       NodeMap.fold (fun rid rnode acc ->
-        match node_uid rule.reactum.bigraph rid with
-        | Some uid ->
-            (* If this node existed in the redex, preserve its mapped ID *)
-            let preserved_id =
-              rule.redex.bigraph.place.nodes
-              |> NodeMap.bindings
-              |> List.find_map (fun (rid_redex, r) ->
-                if node_uid rule.redex.bigraph r.id = Some uid then
-                  List.assoc_opt rid_redex redex_to_target
-                else None)
-            in
-            (match preserved_id with
-            | Some tid ->
-                let node' = { rnode with id = tid } in
-                NodeMap.add tid node' acc
-            | None ->
-                NodeMap.add rid rnode acc)  (* fallback to original reactum ID *)
+        match List.assoc_opt rid redex_to_target with
+        | Some tid ->
+            let node' = { rnode with id = tid } in
+            NodeMap.add tid node' acc
         | None ->
-            NodeMap.add rid rnode acc  (* no UID, keep original *)
+            (* Keep original reactum node if not mapped *)
+            NodeMap.add rid rnode acc
       ) rule.reactum.bigraph.place.nodes NodeMap.empty
     in
 
-    (* 3. Merge with context (unmatched) nodes *)
+    (* 2. Merge with ALL unmatched context nodes so nothing gets deleted *)
     let new_nodes =
       NodeMap.union (fun _ _ r -> Some r)
         match_result.context.bigraph.place.nodes
-        reactum_nodes_preserving_ids
+        reactum_nodes_with_preserved_ids
     in
 
-    (* 4. Update parent map based on reactum (using preserved IDs) *)
-    let preserved_id_map =
-      NodeMap.fold (fun old_id node acc -> (old_id, node.id) :: acc)
-        reactum_nodes_preserving_ids []
-    in
-
+    (* 3. Update parent map — preserve original parents for unmatched nodes *)
     let reactum_parent_map_preserved =
       NodeMap.fold (fun child parent acc ->
-        match List.assoc_opt child preserved_id_map,
-              List.assoc_opt parent preserved_id_map
+        match List.assoc_opt child redex_to_target,
+              List.assoc_opt parent redex_to_target
         with
         | Some new_child, Some new_parent ->
             NodeMap.add new_child new_parent acc
-        | _ -> acc)
-        rule.reactum.bigraph.place.parent_map NodeMap.empty
+        | _ -> acc
+      ) rule.reactum.bigraph.place.parent_map NodeMap.empty
     in
 
     let new_parent_map =
@@ -178,7 +160,7 @@ let apply_rule rule target =
         reactum_parent_map_preserved
     in
 
-    (* 5. Assemble new place graph *)
+    (* 4. Assemble new place graph *)
     let new_place = {
       nodes = new_nodes;
       parent_map = new_parent_map;
@@ -198,6 +180,7 @@ let apply_rule rule target =
     Some { target with bigraph = new_bigraph }
 
   with NoMatch _ -> None
+
 
 (* ------------------------------------------------------------------ *)
 (*  Rule repository helpers                                           *)
