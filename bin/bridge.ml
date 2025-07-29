@@ -1,38 +1,77 @@
+open Bifrost
 open Bifrost.Bigraph
-open Bifrost.Matching
 open Bifrost.Utils
+open Bifrost.Matching
+module Api = Bifrost.Bigraph_rpc.Make (Capnp.BytesMessage)
 
-module Api = Bifrost.Bigraph_rpc.Make(Capnp.BytesMessage)
-(* module Api = Bifrost.Bigraph_rpc.MakeRPC(Capnp_rpc_lwt) *)
-
+(* ------------------------------------------------------------------ *)
 let build (b : Api.Reader.Bigraph.t) : bigraph_with_interface =
   let nodes = Api.Reader.Bigraph.nodes_get_list b in
-  let signature = ref [] in
+  let signature_tbl = Hashtbl.create (List.length nodes) in
   let node_tbl = Hashtbl.create (List.length nodes) in
+
+  (* build signature with deduplicated controls *)
   List.iter
     (fun n ->
-       let control_name = Api.Reader.Node.control_get n in
-       let arity = Api.Reader.Node.arity_get n |> Int32.to_int in
-       let c = create_control control_name arity in
-       signature := c :: !signature;
-       let node = create_node (Api.Reader.Node.id_get n |> Int32.to_int) c in
-       Hashtbl.add node_tbl (Api.Reader.Node.id_get n |> Int32.to_int) node)
+      let control_name = Api.Reader.Node.control_get n in
+      let arity = Api.Reader.Node.arity_get n |> Int32.to_int in
+      if not (Hashtbl.mem signature_tbl control_name) then
+        Hashtbl.add signature_tbl control_name
+          (create_control control_name arity))
     nodes;
 
-  let bg = ref (empty_bigraph !signature) in
+  let signature = Hashtbl.to_seq_values signature_tbl |> List.of_seq in
+
+  (* create node objects, with optional properties *)
   List.iter
     (fun n ->
-       let id = Api.Reader.Node.id_get n |> Int32.to_int in
-       let node = Hashtbl.find node_tbl id in
-       let parent = Api.Reader.Node.parent_get n |> Int32.to_int in
-       if parent = -1 then
-         bg := add_node_to_root !bg node
-       else
-         bg := add_node_as_child !bg parent node)
+      let id = Api.Reader.Node.id_get n |> Int32.to_int in
+      let control_name = Api.Reader.Node.control_get n in
+      let c = Hashtbl.find signature_tbl control_name in
+      let props =
+        let pl = Api.Reader.Node.properties_get_list n in
+        if pl = [] then None
+        else
+          Some
+            (List.map
+               (fun p ->
+                 let key = Api.Reader.Property.key_get p in
+                 let value =
+                   match
+                     Api.Reader.PropertyValue.get
+                       (Api.Reader.Property.value_get p)
+                   with
+                   | Api.Reader.PropertyValue.BoolVal b -> Bool b
+                   | Api.Reader.PropertyValue.IntVal i -> Int (Int32.to_int i)
+                   | Api.Reader.PropertyValue.FloatVal f -> Float f
+                   | Api.Reader.PropertyValue.StringVal s -> String s
+                   | Api.Reader.PropertyValue.ColorVal c ->
+                       let r = Api.Reader.PropertyValue.ColorVal.r_get c in
+                       let g = Api.Reader.PropertyValue.ColorVal.g_get c in
+                       let b = Api.Reader.PropertyValue.ColorVal.b_get c in
+                       Color (r, g, b)
+                   | Api.Reader.PropertyValue.Undefined _ -> String ""
+                 in
+                 (key, value))
+               pl)
+      in
+      Hashtbl.add node_tbl id (create_node ?props id c))
+    nodes;
+
+  let bg = ref (empty_bigraph signature) in
+
+  List.iter
+    (fun n ->
+      let id = Api.Reader.Node.id_get n |> Int32.to_int in
+      let node = Hashtbl.find node_tbl id in
+      let parent = Api.Reader.Node.parent_get n |> Int32.to_int in
+      if parent = -1 then bg := add_node_to_root !bg node
+      else bg := add_node_as_child !bg parent node)
     nodes;
 
   let site_count = Api.Reader.Bigraph.site_count_get b |> Int32.to_int in
   let names = Api.Reader.Bigraph.names_get_list b in
+
   {
     bigraph = !bg;
     inner = { sites = site_count; names };
@@ -44,14 +83,6 @@ let add_rule (r : Api.Reader.Rule.t) : reaction_rule =
   let reactum = build (Api.Reader.Rule.reactum_get r) in
   create_rule (Api.Reader.Rule.name_get r) redex reactum
 
-(* let read_message_from_file (filename : string) : Bifrost.Bigraph_rpc.ro Capnp.BytesMessage.Message.t =
-  let ic = open_in_bin filename in
-  let len = in_channel_length ic in
-  let bytes = really_input_string ic len |> Bytes.of_string in
-  close_in ic;
-  Capnp.BytesMessage.Message.readonly
-    (Capnp.BytesMessage.Message.of_storage [bytes]) *)
-
 let read_message_from_file filename =
   let ic = open_in_bin filename in
   let len = in_channel_length ic in
@@ -61,8 +92,7 @@ let read_message_from_file filename =
   let stream = Capnp.Codecs.FramedStream.of_string ~compression:`None raw in
   match Capnp.Codecs.FramedStream.get_next_frame stream with
   | Ok msg -> msg
-  | Error _ -> failwith ("Failed to decode Cap'n Proto message")
-    
+  | Error _ -> failwith "Failed to decode Cap'n Proto message"
 
 let () =
   let rule_file = Stdlib.Array.get Sys.argv 1 in
@@ -88,9 +118,9 @@ let () =
 
   Printf.printf "Can apply rule: %b\n" (can_apply rule target);
 
-  (match apply_rule rule target with
+  match apply_rule rule target with
   | Some result_state ->
       Printf.printf "Rule applied successfully!\n";
       Printf.printf "Result state:\n";
-      print_bigraph result_state.bigraph;
-  | None -> Printf.printf "Rule could not be applied\n");
+      print_bigraph result_state.bigraph
+  | None -> Printf.printf "Rule could not be applied\n"
