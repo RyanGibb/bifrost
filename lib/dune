@@ -1,3 +1,9 @@
 (library
  (name bifrost)
  (libraries capnp))
+
+(rule
+ (targets bigraph_rpc.ml bigraph_rpc.mli)
+ (deps bigraph_rpc.capnp)
+ (action
+  (run capnp compile -o %{bin:capnpc-ocaml} %{deps})))

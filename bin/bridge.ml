@@ -2,8 +2,8 @@ open Bifrost.Bigraph
 open Bifrost.Matching
 open Bifrost.Utils
 
-module Api = Bigraph_capnp.Make(Capnp.BytesMessage)
-(* module Api = Bigraph_capnp.MakeRPC(Capnp_rpc_lwt) *)
+module Api = Bifrost.Bigraph_rpc.Make(Capnp.BytesMessage)
+(* module Api = Bifrost.Bigraph_rpc.MakeRPC(Capnp_rpc_lwt) *)
 
 let build (b : Api.Reader.Bigraph.t) : bigraph_with_interface =
   let nodes = Api.Reader.Bigraph.nodes_get_list b in
@@ -44,7 +44,7 @@ let add_rule (r : Api.Reader.Rule.t) : reaction_rule =
   let reactum = build (Api.Reader.Rule.reactum_get r) in
   create_rule (Api.Reader.Rule.name_get r) redex reactum
 
-(* let read_message_from_file (filename : string) : Bigraph_capnp.ro Capnp.BytesMessage.Message.t =
+(* let read_message_from_file (filename : string) : Bifrost.Bigraph_rpc.ro Capnp.BytesMessage.Message.t =
   let ic = open_in_bin filename in
   let len = in_channel_length ic in
   let bytes = really_input_string ic len |> Bytes.of_string in
