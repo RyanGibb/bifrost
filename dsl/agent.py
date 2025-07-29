@@ -8,7 +8,7 @@ import anthropic
 
 class ClaudeLLM:
     def __init__(self, model="claude-3-7-sonnet-latest"):
-        self.client = anthropic.Anthropic(os.getenv("ANTHROPIC_API_KEY"))
+        self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         self.model = model
 
     def chat(self, user_prompt):
@@ -30,20 +30,16 @@ class ClaudeLLM:
             redex = Bigraph([
                 Node("Room", id=0, children=[
                     Node("Person", id=1),
-                    Node("Light", id=2, children=[
-                        Node("Off", id=3)
+                    Node("Light", id=2, properties={"power": False}),
                     ])
                 ])
-            ])
 
             reactum = Bigraph([
                 Node("Room", id=0, children=[
                     Node("Person", id=1),
-                    Node("Light", id=2, children=[
-                        Node("On", id=3)
+                    Node("Light", id=2, properties={"power": True}),
                     ])
                 ])
-            ])
             turn_on_light = Rule("turn_on_light", redex, reactum)
             turn_on_light.save("rule.capnp")
             """,
@@ -102,8 +98,7 @@ def main():
             if not rule:
                 raise ValueError("No Rule object found.")
             
-            # print(rule)
-            # print(target)
+            print("Applying rule")
 
             output = apply_rule(rule)
             print(output)

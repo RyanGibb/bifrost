@@ -82,6 +82,34 @@ class Bigraph:
         for i,nm in enumerate(self.names): names[i] = nm
         return bg
 
+    @classmethod
+    def load(cls, path):
+        with open(path, "rb") as f:
+            msg = bigraph_capnp.Bigraph.read(f)
+        nodes_raw = msg.nodes
+        id_to_node = {}
+        children_map = {}
+        for n in nodes_raw:
+            node = Node(
+                control=n.control,
+                id=n.id,
+                arity=n.arity,
+                ports=[p for p in n.ports],
+                properties=n.properties,
+            )
+            id_to_node[n.id] = node
+            parent = n.parent
+            children_map.setdefault(parent, []).append(n.id)
+
+        for parent_id, child_ids in children_map.items():
+            if parent_id != -1:
+                parent = id_to_node[parent_id]
+                for cid in child_ids:
+                    parent.children.append(id_to_node[cid])
+
+        root_nodes = [id_to_node[nid] for nid in children_map.get(-1, [])]
+        return Bigraph(nodes=root_nodes, sites=msg.siteCount, names=[n for n in msg.names])
+    
     # ---------------------------------------------------------------- #
     def save(self, path):
         with open(path, "wb") as fp:
