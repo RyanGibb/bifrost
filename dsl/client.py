@@ -5,7 +5,7 @@ import subprocess
 
 from fastmcp import Client
 
-MCP_PATH = "mcp.py"
+MCP_PATH = "server.py"
 OLLAMA_MODEL = "qwen2.5-coder:3b"
 graph_state = None
 
