@@ -14,6 +14,14 @@ class Node:
         self.properties = properties or {}          # key -> python value
         self.unique_id  = unique_id                # optional string
 
+    def to_dict(self):
+        return {
+            "control": self.control,
+            "id": self.id,
+            "properties": self.properties,
+            "children": [child.to_dict() for child in self.children]
+        }
+    
     def __repr__(self):
         return f"Node({self.id}, {self.control})"
 
@@ -109,6 +117,32 @@ class Bigraph:
 
         root_nodes = [id_to_node[nid] for nid in children_map.get(-1, [])]
         return Bigraph(nodes=root_nodes, sites=msg.siteCount, names=[n for n in msg.names])
+    
+    def add_node(self, node, parent=None):
+        """Add a node to the bigraph. If parent is None, it becomes a root."""
+        if parent is None:
+            self.nodes.append(node)
+        else:
+            parent.children.append(node)
+
+    def find_node_by_control(self, control):
+        """Find the first node whose control name matches."""
+        def search(nodes):
+            for n in nodes:
+                if n.control == control:
+                    return n
+                found = search(n.children)
+                if found:
+                    return found
+            return None
+        return search(self.nodes)
+
+    def to_dict(self):
+        return {
+            "sites": self.sites,
+            "names": self.names,
+            "nodes": [node.to_dict() for node in self.nodes]
+        }
     
     # ---------------------------------------------------------------- #
     def save(self, path):
