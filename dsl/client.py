@@ -55,19 +55,21 @@ async def main():
 
 async def llm(user_prompt: str, tools):
     tool_list = "\n".join(f"- {t.name}: {t.description}" for t in tools)
-
     output = await run_ollama(get_prompt(user_prompt, tool_list))
 
-    cleaned = re.sub(r"^```(?:json)?|```$", "", output.strip(), flags=re.MULTILINE).strip()
-    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-    if match:
-        cleaned = match.group(0)
+    if output.strip().startswith("```"):
+        output = re.sub(r"^```(?:json)?\n?", "", output)
+        output = re.sub(r"\n?```$", "", output)
 
     try:
-        parsed = json.loads(cleaned)
-        return parsed.get("tool"), parsed.get("args", {})
-    except json.JSONDecodeError:
+        parsed = json.loads(output)
+        tool = parsed.get("tool")
+        args = parsed.get("args", {})
+        return tool, args
+
+    except json.JSONDecodeError as e:
         print("Error: invalid JSON", output)
+        print(f"Details: {e}")
         return None, {}
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@
  (name bifrost)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends ocaml capnp capnp-rpc-lwt)
+ (depends ocaml capnp capnp-rpc-lwt yojson)
  (tags
   ("add topics" "to describe" your project)))
 

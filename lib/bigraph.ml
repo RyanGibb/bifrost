@@ -1,9 +1,13 @@
+open Yojson.Safe
+
 (* Core types *)
 type node_id   = int
 type edge_id   = int
 type port_id   = int
 type site_id   = int
 type region_id = int
+
+let schema_path = "../assets/schema.json"
 
 (* ---------- ordered wrappers & containers ------------------------- *)
 
@@ -47,6 +51,14 @@ module RegionMap = Map.Make (RegionId)
 (* ---------- controls & nodes ------------------------------------- *)
 type control = { name : string; arity : int }
 
+type property_type =
+    | IntRange of (int * int)
+    | TInt
+    | TBool
+    | TString of string list
+    | TFloat
+    | TColor
+
 type property_value =
   | Bool   of bool
   | Int    of int
@@ -55,6 +67,53 @@ type property_value =
   | Color  of int * int * int
 
 type properties = (string * property_value) list
+
+let load_schema () =
+  try
+    let json = from_file schema_path in
+    match json with
+    | `Assoc bindings ->
+        let schema_tbl = Hashtbl.create 10 in
+        List.iter (fun (ctrl_name, ctrl_json) ->
+          match ctrl_json with
+          | `Assoc props ->
+              let prop_tbl = Hashtbl.create 10 in
+              List.iter (fun (prop_name, prop_def) ->
+                match prop_def with
+                | `Assoc fields ->
+                    let typ_field = List.assoc "type" fields in
+                    begin match typ_field with
+                    | `String "int" ->
+                        let range_field = try Some (List.assoc "range" fields) with _ -> None in
+                        (match range_field with
+                         | Some (`List [ `Int a; `Int b ]) ->
+                             Hashtbl.add prop_tbl prop_name (IntRange (a, b))
+                         | _ ->
+                             Hashtbl.add prop_tbl prop_name TInt)
+                    | `String "float" ->
+                        Hashtbl.add prop_tbl prop_name TFloat (* TODO - add Float range *)
+                    | `String "bool" ->
+                        Hashtbl.add prop_tbl prop_name TBool
+                    | `String "str" ->
+                        let values_field = try Some (List.assoc "values" fields) with _ -> None in
+                        let values = match values_field with
+                          | Some (`List strs) -> List.map (function `String s -> s | _ -> "") strs
+                          | _ -> []
+                        in
+                        Hashtbl.add prop_tbl prop_name (TString values)
+                    | `String "color" ->
+                        Hashtbl.add prop_tbl prop_name TColor
+                    | _ -> failwith ("Unknown type: " ^ Yojson.Safe.to_string typ_field)
+                    end
+                | _ -> failwith ("Invalid property definition for " ^ prop_name)
+              ) props;
+              Hashtbl.add schema_tbl ctrl_name prop_tbl
+          | _ -> failwith ("Invalid schema definition for " ^ ctrl_name)
+        ) bindings;
+        schema_tbl
+    | _ -> failwith "Malformed schema file"
+  with
+  | _ -> Hashtbl.create 0
 
 type node = {
   id         : node_id;
@@ -73,7 +132,7 @@ type linking = port_id -> link option
 (* ---------- place & link graphs ---------------------------------- *)
 type place_graph = {
   nodes          : node NodeMap.t;
-  parent_map     : node_id NodeMap.t;        (* child → parent *)
+  parent_map     : node_id NodeMap.t;
   sites          : SiteSet.t;
   regions        : RegionSet.t;
   site_parent_map: node_id SiteMap.t;
@@ -131,12 +190,33 @@ let empty_bigraph signature =
 (* ---------- constructors & helpers ------------------------------- *)
 let create_control name arity = { name; arity }
 
+let schema = load_schema ()
+
+let validate_property control_name prop_name value =
+  match Hashtbl.find_opt schema control_name with
+  | None -> ()
+  | Some prop_tbl ->
+      match Hashtbl.find_opt prop_tbl prop_name with
+      | None -> failwith (Printf.sprintf "Invalid property '%s' for control '%s'" prop_name control_name)
+      | Some typ ->
+          match typ, value with
+          | IntRange (min, max), Int v when v >= min && v <= max -> ()
+          | IntRange _, Int _ -> failwith "Integer value out of range"
+          | TInt, Int _ -> ()
+          | TBool, Bool _ -> ()
+          | TString allowed, String s when List.mem s allowed -> ()
+          | TColor, Color _ -> ()
+          | _ -> failwith "Type mismatch for property"
+
+let validate_properties control_name props =
+  List.iter (fun (k, v) -> validate_property control_name k v) props
+
 let create_node ?props id control =
   let ports = List.init control.arity (fun i -> id * 1000 + i) in
+  Option.iter (validate_properties control.name) props;
   { id; control; ports; properties = props }
 
 (* ---- id-graph helpers ------------------------------------------- *)
-
 let add_id_mapping bg uid nid =
   let m = match bg.id_graph with None -> [] | Some l -> l in
   { bg with id_graph = Some ((uid,nid)::m) }
@@ -152,26 +232,27 @@ let create_node_with_uid ?props uid id control bg =
   (node, bg_with_mapping)
 
 (* ---- property helpers ------------------------------------------- *)
-let set_node_property node key value =
-  let new_props =
-    match node.properties with
-    | None -> [key,value]
-    | Some ps ->
-        if List.exists (fun (k,_) -> k=key) ps then
-          List.map (fun (k,v) -> if k=key then (k,value) else (k,v)) ps
-        else (key,value)::ps
-  in
-  { node with properties = Some new_props }
-
 let get_node_property node key =
   match node.properties with
   | None -> None
   | Some ps -> List.assoc_opt key ps
+
+let set_node_property node key value =
+  validate_property node.control.name key value;
+  let new_props =
+    match node.properties with
+    | None -> [key, value]
+    | Some ps ->
+        if List.exists (fun (k, _) -> k = key) ps then
+          List.map (fun (k, v) -> if k = key then (k, value) else (k, v)) ps
+        else (key, value) :: ps
+  in
+  { node with properties = Some new_props }
 
 let update_node_property bg nid key value =
   match NodeMap.find_opt nid bg.place.nodes with
   | None -> bg
   | Some n ->
       let updated = set_node_property n key value in
-      let nodes'  = NodeMap.add nid updated bg.place.nodes in
+      let nodes' = NodeMap.add nid updated bg.place.nodes in
       { bg with place = { bg.place with nodes = nodes' } }

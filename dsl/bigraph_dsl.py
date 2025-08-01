@@ -1,7 +1,64 @@
-import capnp, pathlib
+import capnp, pathlib, json
 capnp.remove_import_hook()
 bigraph_capnp = capnp.load(str(pathlib.Path(__file__).with_name("bigraph.capnp")))
+import pathlib
+import logging
 
+_ASSETS_DIR = pathlib.Path(__file__).parent.parent / "assets"
+_SCHEMA_PATH = _ASSETS_DIR / "schema.json"
+
+def load_schema():
+    if _SCHEMA_PATH.exists():
+        with open(_SCHEMA_PATH) as f:
+            return json.load(f)
+    return {}
+
+CONTROL_SCHEMA = load_schema()
+
+logging.basicConfig(
+    level=logging.INFO,  # DEBUG shows everything; INFO for less verbosity
+    format="[%(asctime)s] %(levelname)-8s %(message)s",
+    datefmt="%H:%M:%S")
+logger = logging.getLogger(__name__)
+
+def validate_properties(control: str, props: dict):
+    """Ensure props conform to schema under control."""
+    schema = CONTROL_SCHEMA.get(control)
+    if schema is None:
+        logger.info(props)
+        if props is not None:
+            raise ValueError(f"Control '{control}' has no specified properties.")
+    if schema is not None:
+        for k, v in props.items():
+            logger.info(k)
+            if k not in schema:
+                raise ValueError(f"Invalid property '{k}' for control '{control}'")
+
+            meta = schema[k]
+            t = meta["type"]
+
+            if t == "int":
+                if not isinstance(v, int):
+                    raise TypeError(f"Property '{k}' expects int, got {type(v)}")
+                r = meta.get("range")
+                if r and not (r[0] <= v <= r[1]):
+                    raise ValueError(f"Value {v} out of range {r} for '{k}'")
+            elif t == "bool":
+                if not isinstance(v, bool):
+                    raise TypeError(f"Property '{k}' expects bool, got {type(v)}")
+            elif t == "str":
+                if not isinstance(v, str):
+                    raise TypeError(f"Property '{k}' expects str, got {type(v)}")
+                allowed = meta.get("values")
+                if allowed is not None and v not in allowed:
+                    raise ValueError(f"'{v}' not in allowed values {allowed} for '{k}'")
+            elif t == "color":
+                if not (isinstance(v, tuple) and len(v) == 3 and all(isinstance(c, int) and 0 <= c <= 255 for c in v)):
+                    raise TypeError(f"Property '{k}' expects color (R,G,B), got {v}")
+            elif t == "float":
+                if not isinstance(v, float):
+                    raise TypeError(f"Property '{k}' expects float, got {type(v)}")
+            
 # ------------------------------------------------------------------ #
 class Node:
     def __init__(self, control, id, arity=0, *,
@@ -11,8 +68,13 @@ class Node:
         self.arity      = arity
         self.children   = children or []
         self.ports      = ports or [id * 1000 + i for i in range(arity)]
-        self.properties = properties or {}          # key -> python value
-        self.unique_id  = unique_id                # optional string
+
+        self.properties = {}
+        if properties:
+            validate_properties(control, properties)  # typesafe now
+            self.properties.update(properties)
+
+        self.unique_id  = unique_id
 
     def to_dict(self):
         return {
@@ -154,6 +216,18 @@ class Bigraph:
 class Rule:
     def __init__(self, name, redex:Bigraph, reactum:Bigraph):
         self.name    = name
+
+        def validate_all(bigraph):
+            def walk(nodes):
+                for n in nodes:
+                    logger.info(n.control)
+                    validate_properties(n.control, n.properties)
+                    walk(n.children)
+            walk(bigraph.nodes)
+
+        validate_all(redex) # optional
+        validate_all(reactum) # optional
+
         self.redex   = redex
         self.reactum = reactum
 
