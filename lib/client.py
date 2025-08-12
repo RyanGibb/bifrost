@@ -5,7 +5,7 @@ import subprocess
 
 from fastmcp import Client
 
-MCP_PATH = "server.py"
+MCP_PATH = "lib/server.py"
 OLLAMA_MODEL = "qwen2.5-coder:3b"
 graph_state = None
 
@@ -31,7 +31,7 @@ async def main():
     async with client:
         tools = await client.list_tools()
 
-        resp = await client.call_tool("load_bigraph_from_file", {"path": "target.capnp"})
+        resp = await client.call_tool("load_bigraph_from_file", {"path": "lib/target.capnp"})
         # print(f"Loaded graph: {resp}")
 
         while True:

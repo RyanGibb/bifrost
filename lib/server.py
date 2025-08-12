@@ -6,7 +6,7 @@ import logging
 import capnp, pathlib
 
 capnp.remove_import_hook()
-bigraph_capnp = capnp.load(str(pathlib.Path(__file__).with_name("bigraph.capnp")))
+bigraph_capnp = capnp.load(str(pathlib.Path(__file__).with_name("bigraph_rpc.capnp")))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,8 +67,7 @@ def load_bigraph_from_file(path: str):
             id=n.id,
             arity=n.arity,
             ports=[p for p in n.ports],
-            properties=properties
-        )
+            properties=properties)
         id_to_node[n.id] = node
         parent = n.parent
         children_map.setdefault(parent, []).append(n.id)
@@ -135,8 +134,7 @@ def bigraph_from_json(json_nodes):
             control=nd["control"],
             id=nd.get("id"),
             properties=nd.get("properties", {}),
-            children=children
-        )
+            children=children)
         nodes.append(node)
     return nodes
 
@@ -146,7 +144,6 @@ def publish_rule_to_redis(rule: dict, redis_host="localhost", channel="rules"):
     """Publish a validated rule to Redis."""
     logger.info(f"Publishing rule {rule.get('name')}")
 
-    # Validate redex/reactum nodes
     for node in rule.get("redex", []):
         validate_node(node)
     for node in rule.get("reactum", []):
@@ -154,17 +151,14 @@ def publish_rule_to_redis(rule: dict, redis_host="localhost", channel="rules"):
 
     redex_bigraph = Bigraph(bigraph_from_json(rule["redex"]))
     reactum_bigraph = Bigraph(bigraph_from_json(rule["reactum"]))
-
     generated_rule = Rule(rule["name"], redex_bigraph, reactum_bigraph)
 
-    # Publish to Redis
     r = redis.Redis(redis_host)
     capnp_data = generated_rule.to_capnp().to_bytes()
     r.publish(channel, capnp_data)
     r.set(f"rule:{generated_rule.name}", capnp_data)
 
     return {"status": "ok", "name": rule["name"]}
-
 
 # def apply_rule(rule: Rule, target_path="target.capnp") -> str:
 #     """Apply Bigraph rule."""

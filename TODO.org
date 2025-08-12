@@ -1,7 +1,6 @@
 * TODO distributed operation
   capnproto
-* TODO agents querying graph python interface
 * TODO library of functions to listen for and make change to state
 * TODO some kind of reactive programming for changes in state and applications of reaction rules
-* TODO add a separate but linked identitiy graph
-* TODO some kind of verifier ??
+* TODO add a separate but linked identity graph
+* TODO some kind of verifier ???

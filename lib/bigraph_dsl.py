@@ -1,6 +1,6 @@
 import capnp, pathlib, json
 capnp.remove_import_hook()
-bigraph_capnp = capnp.load(str(pathlib.Path(__file__).with_name("bigraph.capnp")))
+bigraph_capnp = capnp.load(str(pathlib.Path(__file__).with_name("bigraph_rpc.capnp")))
 import pathlib
 import logging
 
@@ -25,12 +25,10 @@ def validate_properties(control: str, props: dict):
     """Ensure props conform to schema under control."""
     schema = CONTROL_SCHEMA.get(control)
     if schema is None:
-        logger.info(props)
         if props is not None:
             raise ValueError(f"Control '{control}' has no specified properties.")
     if schema is not None:
         for k, v in props.items():
-            logger.info(k)
             if k not in schema:
                 raise ValueError(f"Invalid property '{k}' for control '{control}'")
 
@@ -220,7 +218,6 @@ class Rule:
         def validate_all(bigraph):
             def walk(nodes):
                 for n in nodes:
-                    logger.info(n.control)
                     validate_properties(n.control, n.properties)
                     walk(n.children)
             walk(bigraph.nodes)
