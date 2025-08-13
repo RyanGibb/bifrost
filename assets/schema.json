@@ -1,0 +1,21 @@
+{
+  "Room": {
+    "name": {"type": "string"}
+  },
+  "Light": {
+    "brightness": {"type": "int", "range": [0, 100]},
+    "color": {"type": "color"}
+  },
+  "Person":{
+    "authorised": {"type": "Bool"}
+  },
+  "Safe":{
+    "locked": {"type": "Bool"}
+  },
+  "PIR":{
+    "motion_detected": {"type": "Bool"}
+  },
+  "Display":{
+    "on": {"type": "Bool"}
+  }
+}

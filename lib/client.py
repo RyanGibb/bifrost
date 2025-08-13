@@ -31,7 +31,7 @@ async def main():
     async with client:
         tools = await client.list_tools()
 
-        resp = await client.call_tool("load_bigraph_from_file", {"path": "lib/target.capnp"})
+        resp = await client.call_tool("load_bigraph_from_file_glob", {"path": "lib/target.capnp"})
         # print(f"Loaded graph: {resp}")
 
         while True:

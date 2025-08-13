@@ -1,4 +1,5 @@
 open Bigraph
+open Bigraph_events 
 open Utils
 
 type pattern = bigraph_with_interface
@@ -116,7 +117,7 @@ let match_pattern pattern target =
 (* ------------------------------------------------------------------ *)
 (*  Rule application (same naive implementation as before)            *)
 (* ------------------------------------------------------------------ *)
-let apply_rule rule target =
+(* let apply_rule rule target =
   try
     let match_result = match_pattern rule.redex target in
 
@@ -179,8 +180,72 @@ let apply_rule rule target =
 
     Some { target with bigraph = new_bigraph }
 
+  with NoMatch _ -> None *)
+
+let apply_rule_with_events rule target =
+  try
+    let match_result = match_pattern rule.redex target in
+    let redex_to_target = match_result.node_mapping in
+
+    let reactum_nodes_with_preserved_ids =
+      NodeMap.fold (fun rid rnode acc ->
+        match List.assoc_opt rid redex_to_target with
+        | Some tid -> NodeMap.add tid { rnode with id = tid } acc
+        | None -> NodeMap.add rid rnode acc
+      ) rule.reactum.bigraph.place.nodes NodeMap.empty
+    in
+
+    let new_nodes =
+      NodeMap.union (fun _ _ r -> Some r)
+        match_result.context.bigraph.place.nodes
+        reactum_nodes_with_preserved_ids
+    in
+
+    let reactum_parent_map_preserved =
+      NodeMap.fold (fun child parent acc ->
+        match List.assoc_opt child redex_to_target,
+              List.assoc_opt parent redex_to_target
+        with
+        | Some new_child, Some new_parent ->
+            NodeMap.add new_child new_parent acc
+        | _ -> acc
+      ) rule.reactum.bigraph.place.parent_map NodeMap.empty
+    in
+
+    let new_parent_map =
+      NodeMap.union (fun _ _ r -> Some r)
+        match_result.context.bigraph.place.parent_map
+        reactum_parent_map_preserved
+    in
+
+    let new_place = {
+      nodes = new_nodes;
+      parent_map = new_parent_map;
+      sites = match_result.context.bigraph.place.sites;
+      regions = match_result.context.bigraph.place.regions;
+      site_parent_map = match_result.context.bigraph.place.site_parent_map;
+      region_nodes = match_result.context.bigraph.place.region_nodes;
+    } in
+
+    let new_bigraph = {
+      place = new_place;
+      link = match_result.context.bigraph.link;
+      signature = target.bigraph.signature;
+      id_graph = target.bigraph.id_graph;
+    } in
+
+    let events = [RuleApplied (rule.name, redex_to_target)] in
+    Some ({ target with bigraph = new_bigraph }, events)
+
   with NoMatch _ -> None
 
+(* ------------------------------------------------------------------ *)
+(*  Backwards-compatible API                                          *)
+(* ------------------------------------------------------------------ *)
+let apply_rule rule target =
+  match apply_rule_with_events rule target with
+  | Some (state, _events) -> Some state
+  | None -> None
 
 (* ------------------------------------------------------------------ *)
 (*  Rule repository helpers                                           *)

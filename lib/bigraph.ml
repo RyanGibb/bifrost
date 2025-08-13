@@ -256,3 +256,27 @@ let update_node_property bg nid key value =
       let updated = set_node_property n key value in
       let nodes' = NodeMap.add nid updated bg.place.nodes in
       { bg with place = { bg.place with nodes = nodes' } }
+
+let rec collect_descendants place root_id acc =
+  let acc_with_root = NodeSet.add root_id acc in
+  let children =
+    NodeMap.fold (fun nid parent_id child_ids ->
+      if parent_id = root_id then nid :: child_ids else child_ids
+    ) place.parent_map []
+  in
+  List.fold_left (fun a child -> collect_descendants place child a) acc_with_root children
+
+let project_bigraph (bg : bigraph) ~(root_ids : node_id list) : bigraph =
+  let nodes_to_keep =
+    List.fold_left (fun acc root ->
+      collect_descendants bg.place root acc
+    ) NodeSet.empty root_ids
+  in
+  let nodes =
+    NodeMap.filter (fun nid _ -> NodeSet.mem nid nodes_to_keep) bg.place.nodes
+  in
+  let parent_map =
+    NodeMap.filter (fun nid _ -> NodeSet.mem nid nodes_to_keep) bg.place.parent_map
+  in
+  let place = { bg.place with nodes; parent_map } in
+  { bg with place }

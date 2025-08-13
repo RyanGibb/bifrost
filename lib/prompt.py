@@ -5,95 +5,82 @@ def get_control_schema() -> dict:
     from bigraph_dsl import CONTROL_SCHEMA
     return CONTROL_SCHEMA
 
-# TODO - could I constrain a bit more programatically?
-def get_prompt(user_prompt, tool_list):
+def get_prompt(subgraph_state, tool_list):
     schema_json = json.dumps(get_control_schema(), indent=2)
     return (
         f"""
-
-User request: {user_prompt}
-
 You are an assistant that can query and modify a bigraph via MCP tools. 
 
-You can inspect the graph state, find nodes, and write and save rules. You have access to the following tools:
+You can inspect the graph state, find nodes, and write and save rules. 
+
+You have access to these tools:
 {tool_list}
 
-You MUST output a **valid JSON object*:
-{{"tool": "tool_name", "args": {{ ... }} }}
+**CURRENT STATE TO ANALYZE:**
+{subgraph_state}
 
-If you are authoring a rule, you MUST output a **valid JSON object** following this schema:
+**YOUR TASK:**
+Look at the current state and identify automation opportunities. Common patterns to look for:
+1. Motion detected (PIR: motion_detected=True) but lights are off (Light: brightness=0 or False)
+2. No motion detected but lights are on (wasting energy)
+3. Display screens that should respond to room occupancy
+4. Other logical automation rules
 
-{{
-  "tool": "publish_rule_to_redis",
-  "args": {{
-    "rule": {{
-      "name": "<string>",
-      "redex": [
-        {{
-          "control": "<ControlName>",
-          "id": <int>,
-          "properties": {{ "<prop_name>": <value> }},
-          "children": [ ... nested nodes ... ]
-        }}
-      ],
-      "reactum": [
-        {{
-          "control": "<ControlName>",
-          "id": <int>,
-          "properties": {{ "<prop_name>": <value> }},
-          "children": [ ... nested nodes ... ]
-        }}
-      ]
-    }}
-  }}
-}}
-
-**SCHEMA CONSTRAINTS**:
-- Controls and properties **must match exactly** one in this schema:
-{schema_json}
-- You may only use properties listed for that control.
-- All property values must be of the correct type and within allowed ranges or sets.
-- Only include properties in Reactum if they **change** from the Redex.
-
-**RULE DESIGN**:
-- Redex: minimal properties needed for matching.
-- Reactum: only changed properties.
-- Node IDs must be consistent between Redex and Reactum for the same logical node.
-- Do NOT invent new controls or properties.
-- Use nested `"children"` arrays to represent hierarchy.
-
-Example output:
+**OUTPUT FORMAT:**
+You MUST respond with a valid JSON object in this format:
 
 ```json
 {{
   "tool": "publish_rule_to_redis",
   "args": {{
     "rule": {{
-      "name": "turn_on_light",
+      "name": "<descriptive_rule_name>",
       "redex": [
         {{
           "control": "Room",
-          "id": 0,
-          "properties": {{}},
+          "id": <room_id>,
+          "properties": {{ "name": "<room_name>" }},
           "children": [
-            {{ "control": "Person", "id": 1, "properties": {{}}, "children": [] }},
-            {{ "control": "Light", "id": 2, "properties": {{"brightness": 0}}, "children": [] }}
+            {{ "control": "PIR", "id": <pir_id>, "properties": {{ "motion_detected": true }}, "children": [] }},
+            {{ "control": "Light", "id": <light_id>, "properties": {{ "brightness": 0 }}, "children": [] }}
           ]
         }}
       ],
       "reactum": [
         {{
-          "control": "Room",
-          "id": 0,
-          "properties": {{}},
+          "control": "Room", 
+          "id": <room_id>,
+          "properties": {{ "name": "<room_name>" }},
           "children": [
-            {{ "control": "Person", "id": 1, "properties": {{}}, "children": [] }},
-            {{ "control": "Light", "id": 2, "properties": {{"brightness": 100}}, "children": [] }}
+            {{ "control": "PIR", "id": <pir_id>, "properties": {{ "motion_detected": true }}, "children": [] }},
+            {{ "control": "Light", "id": <light_id>, "properties": {{ "brightness": 100 }}, "children": [] }}
           ]
         }}
       ]
     }}
   }}
 }}
+```
+
+**RULES FOR RULE GENERATION:**
+- Use exact IDs and property names from the current state
+- Redex: describes the condition that triggers the rule (what to match)
+- Reactum: describes the desired outcome (what should change)
+- Only include properties that are relevant to the rule
+- Property types must match the schema exactly:
+
+{schema_json}
+
+**EXAMPLE ANALYSIS:**
+If you see:
+- A Room with PIR showing motion_detected=True
+- The same room has Light with brightness=0 or False
+- This suggests someone entered but lights are off
+
+Then generate a rule to turn on lights when motion is detected.
+
+Analyze the current state now and generate an appropriate rule, or use query_state if you need more information.
+
+You do not need to generate a rule if not necessary. 
 """
-)
+    )
