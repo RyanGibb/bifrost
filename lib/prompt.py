@@ -73,7 +73,7 @@ You MUST respond with a valid JSON object in this format:
 
 **EXAMPLE ANALYSIS:**
 If you see:
-- A Room with PIR showing motion_detected=True
+- A room with PIR showing motion_detected=True
 - The same room has Light with brightness=0 or False
 - This suggests someone entered but lights are off
 

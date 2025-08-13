@@ -30,21 +30,10 @@ class LocalHub:
         self.redis_client = redis.Redis()
 
         self.state_file = pathlib.Path(f"{hub_id}_state.capnp") # TODO - won't work irl, fix
-        self.rules_dir = pathlib.Path(f"{hub_id}_rules") # TODO - won't work irl, fix
+        self.rules_dir = pathlib.Path(f"rules_store/{hub_id}/") # TODO - won't work irl, fix
         self.rules_dir.mkdir(exist_ok=True)
 
         self.state: Dict[str, Any] = {"nodes": {}}
-
-    # === State Management ===
-    def initialize_default_room(self):
-        """If no state file, create default meeting room graph"""
-        self.state["nodes"] = {
-            1: {"id": 1, "control": "Room", "properties": {"name": "MeetingRoom"}, "ports": [], "parent": None},
-            2: {"id": 2, "control": "Light", "properties": {"brightness": False}, "ports": [], "parent": 1},
-            3: {"id": 3, "control": "Display", "properties": {"on": False}, "ports": [], "parent": 1},
-            5: {"id": 5, "control": "PIR", "properties": {"motion_detected": False}, "ports": [], "parent": 1},
-        }
-        self.save_state()
 
     def save_state(self):
         """Write internal state dict to Cap’n Proto file"""
@@ -117,6 +106,7 @@ class LocalHub:
         logger.info("Escalated event to parent channel '%s'", self.parent_channel)
 
     # === Event handling ===
+    # TODO hardcoded for now
     def handle_event(self, event: Dict[str, Any]):
         if event.get("type") == "USER_ENTERED_ROOM":
             logger.info("Event: USER_ENTERED_ROOM")
@@ -172,6 +162,4 @@ if __name__ == "__main__":
 
     hub_id = sys.argv[1]
     hub = LocalHub(hub_id)
-    if not hub.state_file.exists():
-        hub.initialize_default_room()
     hub.listen()

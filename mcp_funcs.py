@@ -148,6 +148,8 @@ def publish_rule_to_redis(rule: dict) -> dict:
     
     logger.info(f"Publishing rule {rule.get('name')}")
 
+    logger.info(rule)
+
     if not all(key in rule for key in ["name", "redex", "reactum"]):
         raise ValueError("Rule must have 'name', 'redex', and 'reactum' fields")
 
@@ -163,13 +165,13 @@ def publish_rule_to_redis(rule: dict) -> dict:
     r = redis.Redis("localhost")
     capnp_data = generated_rule.to_capnp().to_bytes()
     
-    room_id = rule.get("room_id", 0)
-    r.publish(f"hub:{room_id}:rules", capnp_data)
+    node_id = rule.get("node_id", 0)
+    r.publish(f"hub:{node_id}:rules", capnp_data)
     r.set(f"rule:{generated_rule.name}", capnp_data)
     
-    logger.info(f"Published new rule '{rule['name']}' to hub:{room_id}:rules")
+    logger.info(f"Published new rule '{rule['name']}' to hub:{node_id}:rules")
     
-    return {"status": "ok", "name": rule["name"], "room_id": room_id}
+    return {"status": "ok", "name": rule["name"], "node_id": node_id}
 
 if __name__ == "__main__":
     mcp.run()

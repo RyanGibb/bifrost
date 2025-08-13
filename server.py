@@ -1,14 +1,15 @@
 from fastmcp import Client
+import pathlib
 from pathlib import Path
-import json
-import redis
-import logging
-import capnp, pathlib
 import threading
 import subprocess
+import logging
+import asyncio
+import capnp
+import redis
+import json
 import re
 import sys
-import asyncio
 
 sys.path.append(str(Path(__file__).parent / "lib"))
 
@@ -35,7 +36,7 @@ MASTER_FILE = Path("master_building_graph.capnp")
 RULES_ROOT = Path("rules_store")
 RULES_ROOT.mkdir(exist_ok=True)
 
-room_id = 0
+node_id = 0
 
 # TODO move 2 utils
 def convert_capnp_property(value):
@@ -80,7 +81,7 @@ def load_bigraph_from_file(path: str):
 # ---------------------------------------------------------
 # Escalation Handling
 # ---------------------------------------------------------
-def merge_into_master(room_id: str, subgraph_path: Path):
+def merge_into_master(node_id: str, subgraph_path: Path):
     """Replace a subgraph in the master bigraph with new state from a hub."""
     global loaded_graph
 
@@ -91,6 +92,8 @@ def merge_into_master(room_id: str, subgraph_path: Path):
     master = load_bigraph_from_file(MASTER_FILE)
 
     update = load_bigraph_from_file(subgraph_path)
+
+    logger.info(update.nodes)
 
     updated_node = None
     for node in update.nodes:
@@ -178,16 +181,16 @@ def publish_rule_to_redis(rule: dict, redis_host="localhost", channel="rules"):
     r = redis.Redis(redis_host)
     capnp_data = generated_rule.to_capnp().to_bytes()
     # r.publish(channel, capnp_data)
-    r.publish(f"hub:{room_id}:rules", capnp_data)
+    r.publish(f"hub:{node_id}:rules", capnp_data)
     r.set(f"rule:{generated_rule.name}", capnp_data)
-    logger.info(f"Published new rule '{rule.name}' to hub:{room_id}:rules")
+    logger.info(f"Published new rule '{rule.name}' to hub:{node_id}:rules")
 
     return {"status": "ok", "name": rule["name"]}
 
-async def handle_escalation(room_id: str, subgraph_file: str):
+async def handle_escalation(node_id: str, subgraph_file: str):
     """Handles a single escalation request by generating and publishing a rule via LLM."""
     logger.info("Handling escalation")
-    merge_into_master(room_id, Path(subgraph_file))
+    merge_into_master(node_id, Path(subgraph_file))
     
     escalation_client = Client("mcp_funcs.py")
     
@@ -214,7 +217,7 @@ async def handle_escalation(room_id: str, subgraph_file: str):
                 args["graph_json"] = subgraph_state_dict
 
             if tool == "publish_rule_to_redis" and "rule" in args:
-                args["rule"]["room_id"] = room_id
+                args["rule"]["node_id"] = node_id
 
             resp = await escalation_client.call_tool(tool, args)
             result = resp.data
@@ -222,7 +225,7 @@ async def handle_escalation(room_id: str, subgraph_file: str):
             logger.info(f"Tool '{tool}' executed with result: {result}")
 
             if tool == "publish_rule_to_redis" and result.get("status") == "ok":
-                logger.info(f"Rule '{result.get('name')}' successfully published for room {room_id}")
+                logger.info(f"Rule '{result.get('name')}' successfully published for room {node_id}")
             elif tool != "publish_rule_to_redis":
                 logger.info(f"Tool '{tool}' completed successfully")
             else:
