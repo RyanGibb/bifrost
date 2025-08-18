@@ -68,16 +68,10 @@ module type S = sig
       val properties_get : t -> (ro, Property.t, array_t) Capnp.Array.t
       val properties_get_list : t -> Property.t list
       val properties_get_array : t -> Property.t array
-      val of_message : 'cap message_t -> t
-      val of_builder : struct_t builder_t -> t
-    end
-    module IdMapping : sig
-      type struct_t = [`IdMapping_919536869ef13f98]
-      type t = struct_t reader_t
-      val has_unique_id : t -> bool
-      val unique_id_get : t -> string
-      val node_id_get : t -> int32
-      val node_id_get_int_exn : t -> int
+      val has_name : t -> bool
+      val name_get : t -> string
+      val has_type : t -> bool
+      val type_get : t -> string
       val of_message : 'cap message_t -> t
       val of_builder : struct_t builder_t -> t
     end
@@ -94,10 +88,6 @@ module type S = sig
       val names_get : t -> (ro, string, array_t) Capnp.Array.t
       val names_get_list : t -> string list
       val names_get_array : t -> string array
-      val has_id_mappings : t -> bool
-      val id_mappings_get : t -> (ro, IdMapping.t, array_t) Capnp.Array.t
-      val id_mappings_get_list : t -> IdMapping.t list
-      val id_mappings_get_array : t -> IdMapping.t array
       val of_message : 'cap message_t -> t
       val of_builder : struct_t builder_t -> t
     end
@@ -210,22 +200,12 @@ module type S = sig
       val properties_set_list : t -> Property.t list -> (rw, Property.t, array_t) Capnp.Array.t
       val properties_set_array : t -> Property.t array -> (rw, Property.t, array_t) Capnp.Array.t
       val properties_init : t -> int -> (rw, Property.t, array_t) Capnp.Array.t
-      val of_message : rw message_t -> t
-      val to_message : t -> rw message_t
-      val to_reader : t -> struct_t reader_t
-      val init_root : ?message_size:int -> unit -> t
-      val init_pointer : pointer_t -> t
-    end
-    module IdMapping : sig
-      type struct_t = [`IdMapping_919536869ef13f98]
-      type t = struct_t builder_t
-      val has_unique_id : t -> bool
-      val unique_id_get : t -> string
-      val unique_id_set : t -> string -> unit
-      val node_id_get : t -> int32
-      val node_id_get_int_exn : t -> int
-      val node_id_set : t -> int32 -> unit
-      val node_id_set_int_exn : t -> int -> unit
+      val has_name : t -> bool
+      val name_get : t -> string
+      val name_set : t -> string -> unit
+      val has_type : t -> bool
+      val type_get : t -> string
+      val type_set : t -> string -> unit
       val of_message : rw message_t -> t
       val to_message : t -> rw message_t
       val to_reader : t -> struct_t reader_t
@@ -255,14 +235,6 @@ module type S = sig
       val names_set_list : t -> string list -> (rw, string, array_t) Capnp.Array.t
       val names_set_array : t -> string array -> (rw, string, array_t) Capnp.Array.t
       val names_init : t -> int -> (rw, string, array_t) Capnp.Array.t
-      val has_id_mappings : t -> bool
-      val id_mappings_get : t -> (rw, IdMapping.t, array_t) Capnp.Array.t
-      val id_mappings_get_list : t -> IdMapping.t list
-      val id_mappings_get_array : t -> IdMapping.t array
-      val id_mappings_set : t -> (rw, IdMapping.t, array_t) Capnp.Array.t -> (rw, IdMapping.t, array_t) Capnp.Array.t
-      val id_mappings_set_list : t -> IdMapping.t list -> (rw, IdMapping.t, array_t) Capnp.Array.t
-      val id_mappings_set_array : t -> IdMapping.t array -> (rw, IdMapping.t, array_t) Capnp.Array.t
-      val id_mappings_init : t -> int -> (rw, IdMapping.t, array_t) Capnp.Array.t
       val of_message : rw message_t -> t
       val to_message : t -> rw message_t
       val to_reader : t -> struct_t reader_t

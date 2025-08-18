@@ -17,13 +17,13 @@ let create_room_example () =
 
   let bigraph = empty_bigraph signature in
 
-  let room1 = create_node 1 (create_control "Room" 0) in
-  let room2 = create_node 2 (create_control "Room" 0) in
-  let person = create_node 3 (create_control "Person" 1) in
-  let door = create_node 4 (create_control "Door" 2) in
+  let room1 = create_node ~name:"room1" ~node_type:"Room" 1 (create_control "Room" 0) in
+  let room2 = create_node ~name:"room2" ~node_type:"Room" 2 (create_control "Room" 0) in
+  let person = create_node ~name:"person1" ~node_type:"Person" 3 (create_control "Person" 1) in
+  let door = create_node ~name:"door1" ~node_type:"Door" 4 (create_control "Door" 2) in
 
   let bigraph =
-    List.fold_left add_node bigraph [ room1; room2; person; door ]
+    List.fold_left add_node_to_root bigraph [ room1; room2; person; door ]
   in
 
   let door_port1 = List.nth door.ports 0 in
@@ -46,16 +46,16 @@ let create_movement_rule () =
 
   let person_in_room1 =
     let bg = empty_bigraph signature in
-    let person = create_node 1 (create_control "Person" 1) in
-    let room = create_node 2 (create_control "Room" 0) in
-    add_node (add_node bg person) room
+    let person = create_node ~name:"person" ~node_type:"Person" 1 (create_control "Person" 1) in
+    let room = create_node ~name:"room" ~node_type:"Room" 2 (create_control "Room" 0) in
+    add_node_to_root (add_node_to_root bg person) room
   in
 
   let person_in_room2 =
     let bg = empty_bigraph signature in
-    let person = create_node 1 (create_control "Person" 1) in
-    let room = create_node 3 (create_control "Room" 0) in
-    add_node (add_node bg person) room
+    let person = create_node ~name:"person" ~node_type:"Person" 1 (create_control "Person" 1) in
+    let room = create_node ~name:"room" ~node_type:"Room" 3 (create_control "Room" 0) in
+    add_node_to_root (add_node_to_root bg person) room
   in
 
   let redex =

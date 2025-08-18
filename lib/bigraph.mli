@@ -31,14 +31,13 @@ type properties = (string * property_value) list
 
 (** Node type *)
 type node = {
-  id         : node_id;
+  id         : node_id;       (* Unique identifier *)
+  name       : string;        (* Human-readable name *)
+  node_type  : string;        (* Type category *)
   control    : control;
   ports      : port_id list;
   properties : properties option;
 }
-
-(** ID mapping from unique identifier strings to node IDs *)
-type id_mapping = (string * node_id) list
 
 (** Links *)
 type link    = Closed of edge_id | Name of string
@@ -67,7 +66,6 @@ type bigraph = {
   place    : place_graph;
   link     : link_graph;
   signature: control list;
-  id_graph : id_mapping option;
 }
 
 (** Interfaces and bigraph with interface *)
@@ -82,15 +80,21 @@ type bigraph_with_interface = {
 (** Constructors *)
 val empty_bigraph  : control list -> bigraph
 val create_control : string -> int -> control
-val create_node    : ?props:properties -> node_id -> control -> node
-val create_node_with_uid :
-  ?props:properties ->
-  string -> node_id -> control -> bigraph ->
-  node * bigraph
+val create_node : 
+  ?props:properties -> 
+  name:string -> 
+  node_type:string -> 
+  node_id -> 
+  control -> 
+  node
 
-(** ID mapping utilities *)
-val add_id_mapping         : bigraph -> string -> node_id -> bigraph
-val find_node_by_unique_id : bigraph -> string -> node_id option
+val create_node_auto_id :
+  ?props:properties ->
+  name:string ->
+  node_type:string ->
+  bigraph ->
+  control ->
+  node
 
 (** Property helpers *)
 val set_node_property    : node -> string -> property_value -> node
@@ -100,3 +104,13 @@ val update_node_property : bigraph -> node_id -> string -> property_value -> big
 (** Graph traversal *)
 val collect_descendants : place_graph -> node_id -> NodeSet.t -> NodeSet.t
 val project_bigraph     : bigraph -> root_ids:node_id list -> bigraph
+
+(** ID utilities *)
+val get_next_available_id : bigraph -> node_id
+
+(** Node finding utilities *)
+val find_node_by_name : bigraph -> string -> node_id option
+val find_nodes_by_type : bigraph -> string -> node_id list
+
+val add_node_to_root : bigraph -> node -> bigraph
+val add_node_as_child : bigraph -> node_id -> node -> bigraph

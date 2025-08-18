@@ -26,18 +26,15 @@ struct Node {
   parent     @3 :Int32;           # -1 means "root"
   ports      @4 :List(Int32);
   properties @5 :List(Property);
-}
-
-struct IdMapping {
-  uniqueId @0 :Text;
-  nodeId   @1 :Int32;
+  name       @6 :Text;            # Human-readable name
+  type       @7 :Text;            # Node type category
 }
 
 struct Bigraph {
   nodes       @0 :List(Node);
   siteCount   @1 :Int32;
   names       @2 :List(Text);
-  idMappings  @3 :List(IdMapping);
+  # Removed idMappings since we're not using id_graph anymore
 }
 
 struct Rule {

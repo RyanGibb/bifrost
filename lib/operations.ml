@@ -56,24 +56,18 @@ let compose b1 b2 =
     }
   in
 
-  (* Merge id_graphs if present *)
-  let new_id_graph = match (b1.bigraph.id_graph, b2.bigraph.id_graph) with
-    | (None, None) -> None
-    | (Some ids, None) | (None, Some ids) -> Some ids
-    | (Some ids1, Some ids2) -> Some (ids1 @ ids2)
-  in
-
+  (* Remove the id_graph merging code *)
   let composed_bigraph =
     {
       place = new_place;
       link = new_link;
       signature = b1.bigraph.signature @ b2.bigraph.signature;
-      id_graph = new_id_graph;
     }
   in
 
   { bigraph = composed_bigraph; inner = b1.inner; outer = b2.outer }
 
+(* Update tensor_product function similarly *)
 let tensor_product b1 b2 =
   let offset = 10000 in
 
@@ -166,25 +160,12 @@ let tensor_product b1 b2 =
     }
   in
 
-  (* Shift id_graph for b2 *)
-  let shift_id_graph = function
-    | None -> None
-    | Some mappings ->
-        Some (List.map (fun (uid, nid) -> (uid, nid + offset)) mappings)
-  in
-
-  let new_id_graph = match (b1.bigraph.id_graph, shift_id_graph b2.bigraph.id_graph) with
-    | (None, None) -> None
-    | (Some ids, None) | (None, Some ids) -> Some ids
-    | (Some ids1, Some ids2) -> Some (ids1 @ ids2)
-  in
-
+  (* Remove id_graph code *)
   let tensor_bigraph =
     {
       place = new_place;
       link = new_link;
       signature = b1.bigraph.signature @ b2.bigraph.signature;
-      id_graph = new_id_graph;
     }
   in
 

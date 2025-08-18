@@ -82,7 +82,7 @@ def validate_node(node: dict):
     for child in node.get("children", []):
         validate_node(child)
 
-# TODO move to utils
+# TODO move 2 utils
 def bigraph_from_json(json_nodes):
     """Convert JSON structured node list into Bigraph"""
     nodes = []

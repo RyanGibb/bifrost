@@ -35,7 +35,7 @@ let get_root_nodes bigraph =
       else NodeSet.add node_id acc)
     bigraph.place.nodes NodeSet.empty
 
-let add_node_to_root bigraph node =
+(* let add_node_to_root bigraph node =
   let new_nodes = NodeMap.add node.id node bigraph.place.nodes in
   let new_place = { bigraph.place with nodes = new_nodes } in
   { bigraph with place = new_place }
@@ -51,10 +51,9 @@ let add_node_as_child bigraph parent_id child_node =
     let new_place =
       { bigraph.place with nodes = new_nodes; parent_map = new_parent_map }
     in
-    { bigraph with place = new_place }
+    { bigraph with place = new_place } *)
 
-(* Legacy add_node function - adds to root for backward compatibility *)
-let add_node bigraph node = add_node_to_root bigraph node
+(* let add_node bigraph node = add_node_to_root bigraph node *)
 
 let remove_node bigraph node_id =
   let new_nodes = NodeMap.remove node_id bigraph.place.nodes in
@@ -166,10 +165,10 @@ let validate_bigraph bigraph =
     NodeMap.for_all
       (fun _ node ->
         List.exists
-          (fun control ->
-            control.name = node.control.name
-            && control.arity = node.control.arity)
-          bigraph.signature)
+          (fun (sig_control : control) ->
+            sig_control.name = node.control.name
+            && sig_control.arity = node.control.arity)
+         bigraph.signature)
       bigraph.place.nodes
   in
 
@@ -234,7 +233,8 @@ let rec print_node_hierarchy bg indent node_id =
   match get_node bg node_id with
   | None -> ()
   | Some node ->
-      Printf.printf "%sNode %d: %s" indent node_id node.control.name;
+      Printf.printf "%sNode %d: %s (name=\"%s\", type=\"%s\")" 
+        indent node_id node.control.name node.name node.node_type;
       print_properties node.properties;
       Printf.printf "\n";
       let children = get_children bg node_id in

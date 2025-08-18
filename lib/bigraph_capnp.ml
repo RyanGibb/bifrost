@@ -68,16 +68,10 @@ module type S = sig
       val properties_get : t -> (ro, Property.t, array_t) Capnp.Array.t
       val properties_get_list : t -> Property.t list
       val properties_get_array : t -> Property.t array
-      val of_message : 'cap message_t -> t
-      val of_builder : struct_t builder_t -> t
-    end
-    module IdMapping : sig
-      type struct_t = [`IdMapping_919536869ef13f98]
-      type t = struct_t reader_t
-      val has_unique_id : t -> bool
-      val unique_id_get : t -> string
-      val node_id_get : t -> int32
-      val node_id_get_int_exn : t -> int
+      val has_name : t -> bool
+      val name_get : t -> string
+      val has_type : t -> bool
+      val type_get : t -> string
       val of_message : 'cap message_t -> t
       val of_builder : struct_t builder_t -> t
     end
@@ -94,10 +88,6 @@ module type S = sig
       val names_get : t -> (ro, string, array_t) Capnp.Array.t
       val names_get_list : t -> string list
       val names_get_array : t -> string array
-      val has_id_mappings : t -> bool
-      val id_mappings_get : t -> (ro, IdMapping.t, array_t) Capnp.Array.t
-      val id_mappings_get_list : t -> IdMapping.t list
-      val id_mappings_get_array : t -> IdMapping.t array
       val of_message : 'cap message_t -> t
       val of_builder : struct_t builder_t -> t
     end
@@ -210,22 +200,12 @@ module type S = sig
       val properties_set_list : t -> Property.t list -> (rw, Property.t, array_t) Capnp.Array.t
       val properties_set_array : t -> Property.t array -> (rw, Property.t, array_t) Capnp.Array.t
       val properties_init : t -> int -> (rw, Property.t, array_t) Capnp.Array.t
-      val of_message : rw message_t -> t
-      val to_message : t -> rw message_t
-      val to_reader : t -> struct_t reader_t
-      val init_root : ?message_size:int -> unit -> t
-      val init_pointer : pointer_t -> t
-    end
-    module IdMapping : sig
-      type struct_t = [`IdMapping_919536869ef13f98]
-      type t = struct_t builder_t
-      val has_unique_id : t -> bool
-      val unique_id_get : t -> string
-      val unique_id_set : t -> string -> unit
-      val node_id_get : t -> int32
-      val node_id_get_int_exn : t -> int
-      val node_id_set : t -> int32 -> unit
-      val node_id_set_int_exn : t -> int -> unit
+      val has_name : t -> bool
+      val name_get : t -> string
+      val name_set : t -> string -> unit
+      val has_type : t -> bool
+      val type_get : t -> string
+      val type_set : t -> string -> unit
       val of_message : rw message_t -> t
       val to_message : t -> rw message_t
       val to_reader : t -> struct_t reader_t
@@ -255,14 +235,6 @@ module type S = sig
       val names_set_list : t -> string list -> (rw, string, array_t) Capnp.Array.t
       val names_set_array : t -> string array -> (rw, string, array_t) Capnp.Array.t
       val names_init : t -> int -> (rw, string, array_t) Capnp.Array.t
-      val has_id_mappings : t -> bool
-      val id_mappings_get : t -> (rw, IdMapping.t, array_t) Capnp.Array.t
-      val id_mappings_get_list : t -> IdMapping.t list
-      val id_mappings_get_array : t -> IdMapping.t array
-      val id_mappings_set : t -> (rw, IdMapping.t, array_t) Capnp.Array.t -> (rw, IdMapping.t, array_t) Capnp.Array.t
-      val id_mappings_set_list : t -> IdMapping.t list -> (rw, IdMapping.t, array_t) Capnp.Array.t
-      val id_mappings_set_array : t -> IdMapping.t array -> (rw, IdMapping.t, array_t) Capnp.Array.t
-      val id_mappings_init : t -> int -> (rw, IdMapping.t, array_t) Capnp.Array.t
       val of_message : rw message_t -> t
       val to_message : t -> rw message_t
       val to_reader : t -> struct_t reader_t
@@ -425,20 +397,14 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
         Capnp.Array.to_list (properties_get x)
       let properties_get_array x =
         Capnp.Array.to_array (properties_get x)
-      let of_message x = RA_.get_root_struct (RA_.Message.readonly x)
-      let of_builder x = Some (RA_.StructStorage.readonly x)
-    end
-    module IdMapping = struct
-      type struct_t = [`IdMapping_919536869ef13f98]
-      type t = struct_t reader_t
-      let has_unique_id x =
-        RA_.has_field x 0
-      let unique_id_get x =
-        RA_.get_text ~default:"" x 0
-      let node_id_get x =
-        RA_.get_int32 ~default:(0l) x 0
-      let node_id_get_int_exn x =
-        Capnp.Runtime.Util.int_of_int32_exn (node_id_get x)
+      let has_name x =
+        RA_.has_field x 3
+      let name_get x =
+        RA_.get_text ~default:"" x 3
+      let has_type x =
+        RA_.has_field x 4
+      let type_get x =
+        RA_.get_text ~default:"" x 4
       let of_message x = RA_.get_root_struct (RA_.Message.readonly x)
       let of_builder x = Some (RA_.StructStorage.readonly x)
     end
@@ -465,14 +431,6 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
         Capnp.Array.to_list (names_get x)
       let names_get_array x =
         Capnp.Array.to_array (names_get x)
-      let has_id_mappings x =
-        RA_.has_field x 2
-      let id_mappings_get x = 
-        RA_.get_struct_list x 2
-      let id_mappings_get_list x =
-        Capnp.Array.to_list (id_mappings_get x)
-      let id_mappings_get_array x =
-        Capnp.Array.to_array (id_mappings_get x)
       let of_message x = RA_.get_root_struct (RA_.Message.readonly x)
       let of_builder x = Some (RA_.StructStorage.readonly x)
     end
@@ -685,37 +643,25 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
         let builder = properties_init x (Array.length v) in
         let () = Array.iteri (fun i a -> Capnp.Array.set builder i a) v in
         builder
-      let of_message x = BA_.get_root_struct ~data_words:2 ~pointer_words:3 x
+      let has_name x =
+        BA_.has_field x 3
+      let name_get x =
+        BA_.get_text ~default:"" x 3
+      let name_set x v =
+        BA_.set_text x 3 v
+      let has_type x =
+        BA_.has_field x 4
+      let type_get x =
+        BA_.get_text ~default:"" x 4
+      let type_set x v =
+        BA_.set_text x 4 v
+      let of_message x = BA_.get_root_struct ~data_words:2 ~pointer_words:5 x
       let to_message x = x.BA_.NM.StructStorage.data.MessageWrapper.Slice.msg
       let to_reader x = Some (RA_.StructStorage.readonly x)
       let init_root ?message_size () =
-        BA_.alloc_root_struct ?message_size ~data_words:2 ~pointer_words:3 ()
+        BA_.alloc_root_struct ?message_size ~data_words:2 ~pointer_words:5 ()
       let init_pointer ptr =
-        BA_.init_struct_pointer ptr ~data_words:2 ~pointer_words:3
-    end
-    module IdMapping = struct
-      type struct_t = [`IdMapping_919536869ef13f98]
-      type t = struct_t builder_t
-      let has_unique_id x =
-        BA_.has_field x 0
-      let unique_id_get x =
-        BA_.get_text ~default:"" x 0
-      let unique_id_set x v =
-        BA_.set_text x 0 v
-      let node_id_get x =
-        BA_.get_int32 ~default:(0l) x 0
-      let node_id_get_int_exn x =
-        Capnp.Runtime.Util.int_of_int32_exn (node_id_get x)
-      let node_id_set x v =
-        BA_.set_int32 ~default:(0l) x 0 v
-      let node_id_set_int_exn x v = node_id_set x (Capnp.Runtime.Util.int32_of_int_exn v)
-      let of_message x = BA_.get_root_struct ~data_words:1 ~pointer_words:1 x
-      let to_message x = x.BA_.NM.StructStorage.data.MessageWrapper.Slice.msg
-      let to_reader x = Some (RA_.StructStorage.readonly x)
-      let init_root ?message_size () =
-        BA_.alloc_root_struct ?message_size ~data_words:1 ~pointer_words:1 ()
-      let init_pointer ptr =
-        BA_.init_struct_pointer ptr ~data_words:1 ~pointer_words:1
+        BA_.init_struct_pointer ptr ~data_words:2 ~pointer_words:5
     end
     module Bigraph = struct
       type struct_t = [`Bigraph_93662cd6bd715776]
@@ -723,15 +669,15 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
       let has_nodes x =
         BA_.has_field x 0
       let nodes_get x = 
-        BA_.get_struct_list ~data_words:2 ~pointer_words:3 x 0
+        BA_.get_struct_list ~data_words:2 ~pointer_words:5 x 0
       let nodes_get_list x =
         Capnp.Array.to_list (nodes_get x)
       let nodes_get_array x =
         Capnp.Array.to_array (nodes_get x)
       let nodes_set x v =
-        BA_.set_struct_list ~data_words:2 ~pointer_words:3 x 0 v
+        BA_.set_struct_list ~data_words:2 ~pointer_words:5 x 0 v
       let nodes_init x n =
-        BA_.init_struct_list ~data_words:2 ~pointer_words:3 x 0 n
+        BA_.init_struct_list ~data_words:2 ~pointer_words:5 x 0 n
       let nodes_set_list x v =
         let builder = nodes_init x (List.length v) in
         let () = List.iteri (fun i a -> Capnp.Array.set builder i a) v in
@@ -767,33 +713,13 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
         let builder = names_init x (Array.length v) in
         let () = Array.iteri (fun i a -> Capnp.Array.set builder i a) v in
         builder
-      let has_id_mappings x =
-        BA_.has_field x 2
-      let id_mappings_get x = 
-        BA_.get_struct_list ~data_words:1 ~pointer_words:1 x 2
-      let id_mappings_get_list x =
-        Capnp.Array.to_list (id_mappings_get x)
-      let id_mappings_get_array x =
-        Capnp.Array.to_array (id_mappings_get x)
-      let id_mappings_set x v =
-        BA_.set_struct_list ~data_words:1 ~pointer_words:1 x 2 v
-      let id_mappings_init x n =
-        BA_.init_struct_list ~data_words:1 ~pointer_words:1 x 2 n
-      let id_mappings_set_list x v =
-        let builder = id_mappings_init x (List.length v) in
-        let () = List.iteri (fun i a -> Capnp.Array.set builder i a) v in
-        builder
-      let id_mappings_set_array x v =
-        let builder = id_mappings_init x (Array.length v) in
-        let () = Array.iteri (fun i a -> Capnp.Array.set builder i a) v in
-        builder
-      let of_message x = BA_.get_root_struct ~data_words:1 ~pointer_words:3 x
+      let of_message x = BA_.get_root_struct ~data_words:1 ~pointer_words:2 x
       let to_message x = x.BA_.NM.StructStorage.data.MessageWrapper.Slice.msg
       let to_reader x = Some (RA_.StructStorage.readonly x)
       let init_root ?message_size () =
-        BA_.alloc_root_struct ?message_size ~data_words:1 ~pointer_words:3 ()
+        BA_.alloc_root_struct ?message_size ~data_words:1 ~pointer_words:2 ()
       let init_pointer ptr =
-        BA_.init_struct_pointer ptr ~data_words:1 ~pointer_words:3
+        BA_.init_struct_pointer ptr ~data_words:1 ~pointer_words:2
     end
     module Rule = struct
       type struct_t = [`Rule_8c64a3d34f8e5735]
@@ -807,23 +733,23 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
       let has_redex x =
         BA_.has_field x 1
       let redex_get x =
-        BA_.get_struct ~data_words:1 ~pointer_words:3 x 1
+        BA_.get_struct ~data_words:1 ~pointer_words:2 x 1
       let redex_set_reader x v =
-        BA_.set_struct ~data_words:1 ~pointer_words:3 x 1 v
+        BA_.set_struct ~data_words:1 ~pointer_words:2 x 1 v
       let redex_set_builder x v =
-        BA_.set_struct ~data_words:1 ~pointer_words:3 x 1 (Some v)
+        BA_.set_struct ~data_words:1 ~pointer_words:2 x 1 (Some v)
       let redex_init x =
-        BA_.init_struct ~data_words:1 ~pointer_words:3 x 1
+        BA_.init_struct ~data_words:1 ~pointer_words:2 x 1
       let has_reactum x =
         BA_.has_field x 2
       let reactum_get x =
-        BA_.get_struct ~data_words:1 ~pointer_words:3 x 2
+        BA_.get_struct ~data_words:1 ~pointer_words:2 x 2
       let reactum_set_reader x v =
-        BA_.set_struct ~data_words:1 ~pointer_words:3 x 2 v
+        BA_.set_struct ~data_words:1 ~pointer_words:2 x 2 v
       let reactum_set_builder x v =
-        BA_.set_struct ~data_words:1 ~pointer_words:3 x 2 (Some v)
+        BA_.set_struct ~data_words:1 ~pointer_words:2 x 2 (Some v)
       let reactum_init x =
-        BA_.init_struct ~data_words:1 ~pointer_words:3 x 2
+        BA_.init_struct ~data_words:1 ~pointer_words:2 x 2
       let of_message x = BA_.get_root_struct ~data_words:0 ~pointer_words:3 x
       let to_message x = x.BA_.NM.StructStorage.data.MessageWrapper.Slice.msg
       let to_reader x = Some (RA_.StructStorage.readonly x)

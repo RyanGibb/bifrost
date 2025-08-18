@@ -22,12 +22,17 @@ let build (b : Api.Reader.Bigraph.t) : bigraph_with_interface =
 
   let signature = Hashtbl.to_seq_values signature_tbl |> List.of_seq in
 
-  (* create node objects, with optional properties *)
+  (* create node objects with name and type *)
   List.iter
     (fun n ->
        let id = Api.Reader.Node.id_get n |> Int32.to_int in
        let control_name = Api.Reader.Node.control_get n in
        let c = Hashtbl.find signature_tbl control_name in
+       
+       (* Get name and type from the schema *)
+       let name = Api.Reader.Node.name_get n in
+       let node_type = Api.Reader.Node.type_get n in
+       
        let props =
         let pl = Api.Reader.Node.properties_get_list n in
          if pl = [] then None
@@ -49,7 +54,12 @@ let build (b : Api.Reader.Bigraph.t) : bigraph_with_interface =
              in
              (key, value)) pl)
        in
-       Hashtbl.add node_tbl id (create_node ?props id c))
+       
+       (* Check for duplicate IDs *)
+       if Hashtbl.mem node_tbl id then
+         failwith (Printf.sprintf "Duplicate node ID: %d" id);
+       
+       Hashtbl.add node_tbl id (create_node ?props ~name ~node_type id c))
     nodes;
 
   let bg = ref (empty_bigraph signature) in
@@ -93,7 +103,6 @@ let read_message_from_file filename =
 let () =
   let rule_file = Stdlib.Array.get Sys.argv 1 in
   let target_file = Stdlib.Array.get Sys.argv 2 in
-  (* let rule_msg = Capnp.Message.read_file rule_file in *)
 
   let rule_msg = read_message_from_file rule_file in
   let rule_reader = Api.Reader.Rule.of_message rule_msg in

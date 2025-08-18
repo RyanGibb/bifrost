@@ -1,3 +1,4 @@
-(test
+(executable
+ (public_name test_matching)
  (name test_matching)
  (libraries bifrost))

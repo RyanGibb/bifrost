@@ -23,41 +23,6 @@ let property_value_of_json (j : Yojson.Safe.t) : property_value =
   | `List [`Int r; `Int g; `Int b] -> Color (r,g,b)
   | _ -> failwith "Invalid property value JSON"
 
-let serialize_graph_event (ev : graph_event) : Yojson.Safe.t =
-  match ev with
-  | NodeAdded n ->
-      `Assoc [
-        "type", `String "NodeAdded";
-        "node", `Int n.id;
-        "control", `String n.control.name;
-        "arity", `Int n.control.arity;
-        "properties",
-          (match n.properties with
-           | None -> `Null
-           | Some props ->
-               `Assoc (List.map (fun (k,v) -> k, property_value_to_json v) props));
-        "ports", `List (List.map (fun p -> `Int p) n.ports)
-      ]
-  | NodeRemoved nid ->
-      `Assoc [
-        "type", `String "NodeRemoved";
-        "node_id", `Int nid
-      ]
-  | PropertyChanged (nid, key, value) ->
-      `Assoc [
-        "type", `String "PropertyChanged";
-        "node_id", `Int nid;
-        "key", `String key;
-        "value", property_value_to_json value
-      ]
-  | RuleApplied (name, mapping) ->
-      `Assoc [
-        "type", `String "RuleApplied";
-        "name", `String name;
-        "mapping",
-          `List (List.map (fun (a,b) -> `List [`Int a; `Int b]) mapping)
-      ]
-
 let deserialize_graph_event (json : Yojson.Safe.t) : graph_event option =
   match json with
   | `Assoc fields ->
@@ -77,6 +42,17 @@ let deserialize_graph_event (json : Yojson.Safe.t) : graph_event option =
           let id = get_int "node" in
           let control_name = get_str "control" in
           let arity = get_int "arity" in
+          
+          (* Get name and node_type, with defaults *)
+          let name = 
+            try get_str "name" 
+            with _ -> Printf.sprintf "node_%d" id 
+          in
+          let node_type = 
+            try get_str "node_type"
+            with _ -> control_name
+          in
+          
           let props_json = List.assoc "properties" fields in
           let props =
             match props_json with
@@ -91,7 +67,7 @@ let deserialize_graph_event (json : Yojson.Safe.t) : graph_event option =
             | _ -> []
           in
           let control = create_control control_name arity in
-          Some (NodeAdded { id; control; ports; properties=props })
+          Some (NodeAdded { id; name; node_type; control; ports; properties=props })
       | "NodeRemoved" ->
           let nid = get_int "node_id" in
           Some (NodeRemoved nid)
@@ -115,3 +91,41 @@ let deserialize_graph_event (json : Yojson.Safe.t) : graph_event option =
       | _ -> None
       end
   | _ -> None
+
+(* Also update serialize_graph_event to include name and node_type *)
+let serialize_graph_event (ev : graph_event) : Yojson.Safe.t =
+  match ev with
+  | NodeAdded n ->
+      `Assoc [
+        "type", `String "NodeAdded";
+        "node", `Int n.id;
+        "name", `String n.name;
+        "node_type", `String n.node_type;
+        "control", `String n.control.name;
+        "arity", `Int n.control.arity;
+        "properties",
+          (match n.properties with
+            | None -> `Null
+            | Some props ->
+                `Assoc (List.map (fun (k,v) -> k, property_value_to_json v) props));
+        "ports", `List (List.map (fun p -> `Int p) n.ports)
+      ]
+  | NodeRemoved nid ->
+      `Assoc [
+        "type", `String "NodeRemoved";
+        "node_id", `Int nid
+      ]
+  | PropertyChanged (nid, key, value) ->
+      `Assoc [
+        "type", `String "PropertyChanged";
+        "node_id", `Int nid;
+        "key", `String key;
+        "value", property_value_to_json value
+      ]
+  | RuleApplied (name, mapping) ->
+      `Assoc [
+        "type", `String "RuleApplied";
+        "name", `String name;
+        "mapping",
+          `List (List.map (fun (a,b) -> `List [`Int a; `Int b]) mapping)
+      ]

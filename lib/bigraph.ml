@@ -116,14 +116,13 @@ let load_schema () =
   | _ -> Hashtbl.create 0
 
 type node = {
-  id         : node_id;
+  id         : node_id;       (* This is THE unique identifier *)
+  name       : string;        (* Human-readable name *)
+  node_type  : string;        (* Type category *)
   control    : control;
   ports      : port_id list;
   properties : properties option;
 }
-
-(* ---------- id-graph --------------------------------------------- *)
-type id_mapping = (string * node_id) list
 
 (* ---------- link structures -------------------------------------- *)
 type link    = Closed of edge_id | Name of string
@@ -151,7 +150,6 @@ type bigraph = {
   place    : place_graph;
   link     : link_graph;
   signature: control list;
-  id_graph : id_mapping option;
 }
 
 (* ---------- interface wrappers ----------------------------------- *)
@@ -184,13 +182,30 @@ let empty_bigraph signature =
   { place    = empty_place_graph
   ; link     = empty_link_graph
   ; signature
-  ; id_graph = None
   }
 
 (* ---------- constructors & helpers ------------------------------- *)
+
+let find_node_by_name bg name =
+  NodeMap.fold (fun id node acc ->
+    if node.name = name then Some id else acc
+  ) bg.place.nodes None
+
+(* Find nodes by type *)
+let find_nodes_by_type bg node_type =
+  NodeMap.fold (fun id node acc ->
+    if node.node_type = node_type then id :: acc else acc
+  ) bg.place.nodes []
+  
 let create_control name arity = { name; arity }
 
 let schema = load_schema ()
+
+let get_next_available_id bigraph =
+  let max_id = 
+    NodeMap.fold (fun id _ acc -> max id acc) bigraph.place.nodes 0
+  in
+  max_id + 1
 
 let validate_property control_name prop_name value =
   match Hashtbl.find_opt schema control_name with
@@ -211,25 +226,37 @@ let validate_property control_name prop_name value =
 let validate_properties control_name props =
   List.iter (fun (k, v) -> validate_property control_name k v) props
 
-let create_node ?props id control =
+let add_node_to_root bigraph node =
+  if NodeMap.mem node.id bigraph.place.nodes then
+    failwith (Printf.sprintf "Node with ID %d already exists" node.id)
+  else
+    let new_nodes = NodeMap.add node.id node bigraph.place.nodes in
+    let new_place = { bigraph.place with nodes = new_nodes } in
+    { bigraph with place = new_place }
+
+let add_node_as_child bigraph parent_id child_node =
+  if not (NodeMap.mem parent_id bigraph.place.nodes) then
+    failwith ("Parent node " ^ string_of_int parent_id ^ " does not exist")
+  else if NodeMap.mem child_node.id bigraph.place.nodes then
+    failwith (Printf.sprintf "Node with ID %d already exists" child_node.id)
+  else
+    let new_nodes = NodeMap.add child_node.id child_node bigraph.place.nodes in
+    let new_parent_map =
+      NodeMap.add child_node.id parent_id bigraph.place.parent_map
+    in
+    let new_place =
+      { bigraph.place with nodes = new_nodes; parent_map = new_parent_map }
+    in
+    { bigraph with place = new_place }
+
+let create_node ?props ~name ~node_type id control =
   let ports = List.init control.arity (fun i -> id * 1000 + i) in
   Option.iter (validate_properties control.name) props;
-  { id; control; ports; properties = props }
+  { id; name; node_type; control; ports; properties = props }
 
-(* ---- id-graph helpers ------------------------------------------- *)
-let add_id_mapping bg uid nid =
-  let m = match bg.id_graph with None -> [] | Some l -> l in
-  { bg with id_graph = Some ((uid,nid)::m) }
-
-let find_node_by_unique_id bg uid =
-  match bg.id_graph with
-  | None -> None
-  | Some l -> List.assoc_opt uid l
-
-let create_node_with_uid ?props uid id control bg =
-  let node = create_node ?props id control in
-  let bg_with_mapping = add_id_mapping bg uid id in
-  (node, bg_with_mapping)
+let create_node_auto_id ?props ~name ~node_type bigraph control =
+  let id = get_next_available_id bigraph in
+  create_node ?props ~name ~node_type id control
 
 (* ---- property helpers ------------------------------------------- *)
 let get_node_property node key =

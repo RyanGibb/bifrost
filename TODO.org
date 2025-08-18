@@ -1,6 +1,6 @@
-* TODO distributed operation
-  capnproto
+* TODO add first-class “attributes” to nodes: a globally unique stable ID, a human-readable name, and a type
 * TODO library of functions to listen for and make change to state
 * TODO some kind of reactive programming for changes in state and applications of reaction rules
-* TODO add a separate but linked identity graph
-* TODO some kind of verifier ???
+* TODO add some kind of verifier ???
+* TODO distributed operation
+  capnproto
