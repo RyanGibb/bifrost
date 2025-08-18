@@ -16,82 +16,88 @@ def load_schema():
 CONTROL_SCHEMA = load_schema()
 
 logging.basicConfig(
-    level=logging.INFO,  # DEBUG shows everything; INFO for less verbosity
+    level=logging.INFO,
     format="[%(asctime)s] %(levelname)-8s %(message)s",
     datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
 
-def validate_properties(control: str, props: dict):
-    """Ensure props conform to schema under control."""
-    schema = CONTROL_SCHEMA.get(control)
-    if schema is None:
-        if props is not None:
-            raise ValueError(f"Control '{control}' has no specified properties.")
-    if schema is not None:
-        for k, v in props.items():
-            if k not in schema:
-                raise ValueError(f"Invalid property '{k}' for control '{control}'")
+def validate_properties(node_type: str, props: dict):
+    """Ensure props conform to schema for the given node type."""
+    schema = CONTROL_SCHEMA.get("types", {}).get(node_type, {}).get("properties", {})
+    
+    if not schema and props:
+        # If no schema defined for this type, allow any properties
+        logger.warning(f"No schema defined for type '{node_type}', skipping validation")
+        return
+        
+    for k, v in props.items():
+        if k not in schema:
+            raise ValueError(f"Invalid property '{k}' for type '{node_type}'")
 
-            meta = schema[k]
-            t = meta["type"]
+        meta = schema[k]
+        t = meta["type"]
 
-            if t == "int":
-                if not isinstance(v, int):
-                    raise TypeError(f"Property '{k}' expects int, got {type(v)}")
-                r = meta.get("range")
-                if r and not (r[0] <= v <= r[1]):
-                    raise ValueError(f"Value {v} out of range {r} for '{k}'")
-            elif t == "bool":
-                if not isinstance(v, bool):
-                    raise TypeError(f"Property '{k}' expects bool, got {type(v)}")
-            elif t == "str":
-                if not isinstance(v, str):
-                    raise TypeError(f"Property '{k}' expects str, got {type(v)}")
-                allowed = meta.get("values")
-                if allowed is not None and v not in allowed:
-                    raise ValueError(f"'{v}' not in allowed values {allowed} for '{k}'")
-            elif t == "color":
-                if not (isinstance(v, tuple) and len(v) == 3 and all(isinstance(c, int) and 0 <= c <= 255 for c in v)):
-                    raise TypeError(f"Property '{k}' expects color (R,G,B), got {v}")
-            elif t == "float":
-                if not isinstance(v, float):
-                    raise TypeError(f"Property '{k}' expects float, got {type(v)}")
+        if t == "int":
+            if not isinstance(v, int):
+                raise TypeError(f"Property '{k}' expects int, got {type(v)}")
+            r = meta.get("range")
+            if r and not (r[0] <= v <= r[1]):
+                raise ValueError(f"Value {v} out of range {r} for '{k}'")
+        elif t == "bool":
+            if not isinstance(v, bool):
+                raise TypeError(f"Property '{k}' expects bool, got {type(v)}")
+        elif t == "string":
+            if not isinstance(v, str):
+                raise TypeError(f"Property '{k}' expects string, got {type(v)}")
+            allowed = meta.get("values")
+            if allowed is not None and v not in allowed:
+                raise ValueError(f"'{v}' not in allowed values {allowed} for '{k}'")
+        elif t == "color":
+            if not (isinstance(v, tuple) and len(v) == 3 and all(isinstance(c, int) and 0 <= c <= 255 for c in v)):
+                raise TypeError(f"Property '{k}' expects color (R,G,B), got {v}")
+        elif t == "float":
+            if not isinstance(v, float):
+                raise TypeError(f"Property '{k}' expects float, got {type(v)}")
             
 # ------------------------------------------------------------------ #
 class Node:
     def __init__(self, control, id, arity=0, *,
-                 children=None, ports=None, properties=None, unique_id=None):
+                 children=None, ports=None, properties=None, 
+                 name=None, node_type=None):
         self.control    = control
         self.id         = id
         self.arity      = arity
         self.children   = children or []
         self.ports      = ports or [id * 1000 + i for i in range(arity)]
+        
+        # New fields for better matching
+        self.name = name or f"node_{id}"  # Default name
+        self.node_type = node_type or control  # Default type is control name
 
         self.properties = {}
         if properties:
-            validate_properties(control, properties)  # typesafe now
+            validate_properties(self.node_type, properties)
             self.properties.update(properties)
-
-        self.unique_id  = unique_id
 
     def to_dict(self):
         return {
             "control": self.control,
             "id": self.id,
+            "name": self.name,
+            "type": self.node_type,
             "properties": self.properties,
             "children": [child.to_dict() for child in self.children]
         }
     
     def __repr__(self):
-        return f"Node({self.id}, {self.control})"
+        return f"Node({self.id}, {self.control}, name={self.name}, type={self.node_type})"
 
 # ------------------------------------------------------------------ #
 class Bigraph:
     def __init__(self, nodes=None, *, sites=0, names=None):
-        self.nodes        = nodes or []
-        self.sites        = sites
-        self.names        = names or []
-        self.id_mappings  = {}  # uniqueId -> node_id will be filled in to_capnp
+        self.nodes = nodes or []
+        self.sites = sites
+        self.names = names or []
 
     # --- helpers ---------------------------------------------------- #
     def _flatten_nodes(self):
@@ -118,6 +124,8 @@ class Bigraph:
             n.control = node.control
             n.arity   = node.arity
             n.parent  = parent
+            n.name    = node.name
+            n.type    = node.node_type
 
             # ports
             ports = n.init("ports", len(node.ports))
@@ -135,15 +143,6 @@ class Bigraph:
                     elif isinstance(v,str):    prop.value.stringVal = v
                     elif (isinstance(v,tuple) and len(v)==3):
                         prop.value.colorVal.r, prop.value.colorVal.g, prop.value.colorVal.b = v
-            # unique id mapping
-            if node.unique_id: self.id_mappings[node.unique_id] = node.id
-
-        # idMappings
-        if self.id_mappings:
-            maps = bg.init("idMappings", len(self.id_mappings))
-            for i,(uid,nid) in enumerate(self.id_mappings.items()):
-                maps[i].uniqueId = uid
-                maps[i].nodeId   = nid
 
         bg.siteCount = self.sites
         names = bg.init("names", len(self.names))
@@ -158,12 +157,31 @@ class Bigraph:
         id_to_node = {}
         children_map = {}
         for n in nodes_raw:
+            # Extract properties
+            props = {}
+            for p in n.properties:
+                key = p.key
+                value = p.value
+                which = value.which()
+                if which == 'boolVal':
+                    props[key] = value.boolVal
+                elif which == 'intVal':
+                    props[key] = value.intVal
+                elif which == 'floatVal':
+                    props[key] = value.floatVal
+                elif which == 'stringVal':
+                    props[key] = value.stringVal
+                elif which == 'colorVal':
+                    props[key] = (value.colorVal.r, value.colorVal.g, value.colorVal.b)
+                    
             node = Node(
                 control=n.control,
                 id=n.id,
                 arity=n.arity,
                 ports=[p for p in n.ports],
-                properties=n.properties,
+                properties=props,
+                name=n.name,
+                node_type=n.type
             )
             id_to_node[n.id] = node
             parent = n.parent
@@ -184,6 +202,29 @@ class Bigraph:
             self.nodes.append(node)
         else:
             parent.children.append(node)
+
+    def find_node_by_name(self, name):
+        """Find the first node whose name matches."""
+        def search(nodes):
+            for n in nodes:
+                if n.name == name:
+                    return n
+                found = search(n.children)
+                if found:
+                    return found
+            return None
+        return search(self.nodes)
+    
+    def find_nodes_by_type(self, node_type):
+        """Find all nodes of a given type."""
+        results = []
+        def search(nodes):
+            for n in nodes:
+                if n.node_type == node_type:
+                    results.append(n)
+                search(n.children)
+        search(self.nodes)
+        return results
 
     def find_node_by_control(self, control):
         """Find the first node whose control name matches."""
@@ -218,12 +259,12 @@ class Rule:
         def validate_all(bigraph):
             def walk(nodes):
                 for n in nodes:
-                    validate_properties(n.control, n.properties)
+                    validate_properties(n.node_type, n.properties)
                     walk(n.children)
             walk(bigraph.nodes)
 
-        validate_all(redex) # optional
-        validate_all(reactum) # optional
+        validate_all(redex)
+        validate_all(reactum)
 
         self.redex   = redex
         self.reactum = reactum

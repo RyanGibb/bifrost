@@ -187,16 +187,16 @@ def publish_rule_to_redis(rule: dict, redis_host="localhost", channel="rules"):
 
     return {"status": "ok", "name": rule["name"]}
 
-async def handle_escalation(node_id: str, subgraph_file: str):
+async def handle_escalation(hub_id: str, subgraph_file: str, event_data: dict):
     """Handles a single escalation request by generating and publishing a rule via LLM."""
-    logger.info("Handling escalation")
-    merge_into_master(node_id, Path(subgraph_file))
+    logger.info(f"Handling escalation for event: {event_data.get('type')}")
+    merge_into_master(hub_id, Path(subgraph_file))
     
     escalation_client = Client("mcp_funcs.py")
     
     try:
         async with escalation_client:
-            resp = await escalation_client.call_tool("load_bigraph_from_file_glob", {"path": "master_building_graph.capnp"})
+            resp = await escalation_client.call_tool("load_bigraph_from_file_glob", {"path": subgraph_file})
             
             state_resp = await escalation_client.call_tool("query_state", {})
             subgraph_state_dict = state_resp.data
@@ -204,8 +204,11 @@ async def handle_escalation(node_id: str, subgraph_file: str):
             tools = await escalation_client.list_tools()
             tool_list_str = "\n".join(f"- {t.name}: {t.description}" for t in tools)
             
+            # Pass event context to prompt
             tool, args = await llm(
-                get_prompt(json.dumps(subgraph_state_dict, indent=2), tool_list_str),
+                get_prompt(json.dumps(subgraph_state_dict, indent=2), 
+                          tool_list_str, 
+                          event_data),  # Pass event data
                 tools
             )
 
@@ -246,9 +249,6 @@ async def listen_for_escalations():
     ps.subscribe("building:requests")
     logger.info("Listening for escalations on 'building:requests'")
     
-    # Use async Redis if available, or handle sync in executor
-    loop = asyncio.get_event_loop()
-    
     try:
         for msg in ps.listen():
             if msg["type"] != "message":
@@ -256,14 +256,15 @@ async def listen_for_escalations():
             try:
                 data = json.loads(msg["data"])
                 if data.get("type") == "ESCALATION_REQUEST":
-                    # Handle escalation asynchronously
-                    await handle_escalation(data["hub_id"], data["graph_file"])
+                    # Pass event data to handler
+                    await handle_escalation(data["hub_id"], 
+                                          data["graph_file"],
+                                          data.get("event", {}))  # Pass event
             except Exception as e:
                 logger.error(f"Error handling escalation: {e}")
     except Exception as e:
         logger.error(f"Redis listener error: {e}")
         raise
-
 
 async def run_ollama(prompt: str) -> str:
     proc = subprocess.Popen(

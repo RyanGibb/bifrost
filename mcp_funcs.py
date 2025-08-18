@@ -57,28 +57,31 @@ def convert_capnp_property(value):
 
 # TODO move 2 utils
 def validate_node(node: dict):
-    """Validate that node control and properties follow CONTROL_SCHEMA"""
-    control = node.get("control")
-    if control not in CONTROL_SCHEMA:
-        raise ValueError(f"Invalid control: {control}")
-
-    valid_props = CONTROL_SCHEMA[control].get("properties")
+    """Validate that node type and properties follow CONTROL_SCHEMA"""
+    node_type = node.get("type", node.get("control"))  # Fallback to control
+    
+    schema = CONTROL_SCHEMA.get("types", {}).get(node_type, {})
+    valid_props = schema.get("properties", {})
+    
     if valid_props and "properties" in node:
         for prop, val in node["properties"].items():
             if prop not in valid_props:
-                raise ValueError(f"Invalid property '{prop}' for '{control}'")
-            expected_type = valid_props[prop]["type"]
+                raise ValueError(f"Invalid property '{prop}' for type '{node_type}'")
+            expected = valid_props[prop]
+            expected_type = expected["type"]
+            
             if expected_type == "int" and not isinstance(val, int):
                 raise ValueError(f"Property '{prop}' must be int")
-            if expected_type == "bool" and not isinstance(val, bool):
+            elif expected_type == "bool" and not isinstance(val, bool):
                 raise ValueError(f"Property '{prop}' must be bool")
-            if expected_type == "str" and not isinstance(val, str):
-                raise ValueError(f"Property '{prop}' must be str")
-            if expected_type == "float" and not isinstance(val, float):
+            elif expected_type == "string" and not isinstance(val, str):
+                raise ValueError(f"Property '{prop}' must be string")
+            elif expected_type == "float" and not isinstance(val, float):
                 raise ValueError(f"Property '{prop}' must be float")
-            if expected_type == "color":
+            elif expected_type == "color":
                 if not (isinstance(val, (list, tuple)) and len(val) == 3 and all(isinstance(c, int) for c in val)):
-                    raise ValueError(f"Property '{prop}' must be RGB tuple of 3 ints")
+                    raise ValueError(f"Property '{prop}' must be RGB tuple")
+                    
     for child in node.get("children", []):
         validate_node(child)
 
@@ -90,9 +93,12 @@ def bigraph_from_json(json_nodes):
         children = bigraph_from_json(nd.get("children", []))
         node = Node(
             control=nd["control"],
-            id=nd.get("id"),
+            id=nd.get("id", 0),  # Default to 0 for type matching
             properties=nd.get("properties", {}),
-            children=children)
+            children=children,
+            name=nd.get("name", f"node_{nd.get('id', 0)}"),
+            node_type=nd.get("type", nd["control"])  # Default type to control
+        )
         nodes.append(node)
     return nodes
 

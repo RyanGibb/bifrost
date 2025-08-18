@@ -1,4 +1,5 @@
 * TODO add first-class “attributes” to nodes: a globally unique stable ID, a human-readable name, and a type
+  - does schema need to associate properties with UIDs also?
 * TODO library of functions to listen for and make change to state
 * TODO some kind of reactive programming for changes in state and applications of reaction rules
 * TODO add some kind of verifier ???

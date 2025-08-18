@@ -29,11 +29,11 @@ class LocalHub:
         self.parent_channel = parent_channel
         self.redis_client = redis.Redis()
 
-        self.state_file = pathlib.Path(f"{hub_id}_state.capnp") # TODO - won't work irl, fix
-        self.rules_dir = pathlib.Path(f"rules_store/{hub_id}/") # TODO - won't work irl, fix
+        self.state_file = pathlib.Path(f"{hub_id}_state.capnp")
+        self.rules_dir = pathlib.Path(f"rules_store/{hub_id}/")
         self.rules_dir.mkdir(exist_ok=True)
 
-        self.state: Dict[str, Any] = {"nodes": {}}
+        self.init_room_state()
 
     def save_state(self):
         """Write internal state dict to Cap’n Proto file"""
@@ -68,6 +68,94 @@ class LocalHub:
         with self.state_file.open("wb") as f:
             msg.write(f)
         logger.info("Saved state to %s", self.state_file)
+
+    def update_node_property(self, node_id: int, key: str, value: Any):
+        if node_id in self.state["nodes"]:
+            self.state["nodes"][node_id]["properties"][key] = value
+            self.save_state()
+            
+    def init_room_state(self):
+        """Initialize state based on hub_id - map hub to room"""
+        # Map hub IDs to room configurations
+        room_configs = {
+            "room42": {
+                "room_id": 1,
+                "room_name": "MeetingRoom42",
+                "light_id": 2,
+                "display_id": 3,
+                "pir_id": 4
+            },
+            "office1": {
+                "room_id": 10,
+                "room_name": "Office1", 
+                "light_id": 11,
+                "pir_id": 12
+            },
+            "conference": {
+                "room_id": 20,
+                "room_name": "ConferenceA",
+                "light_id": 21,
+                "pir_id": 22
+            }
+        }
+        
+        config = room_configs.get(self.hub_id)
+        if not config:
+            logger.error(f"Unknown hub_id: {self.hub_id}")
+            return
+            
+        # Build initial state
+        room_node = {
+            "id": config["room_id"],
+            "control": "Room",
+            "parent": None,
+            "ports": [],
+            "properties": {"name": config["room_name"]},
+            "name": config["room_name"],
+            "type": "Room"
+        }
+        
+        light_node = {
+            "id": config["light_id"],
+            "control": "Light",
+            "parent": config["room_id"],
+            "ports": [],
+            "properties": {"brightness": 0},  # Start with lights off
+            "name": f"light_{self.hub_id}",
+            "type": "Light"
+        }
+        
+        pir_node = {
+            "id": config["pir_id"],
+            "control": "PIR",
+            "parent": config["room_id"],
+            "ports": [],
+            "properties": {"motion_detected": False},
+            "name": f"pir_{self.hub_id}",
+            "type": "PIR"
+        }
+        
+        self.state = {
+            "nodes": {
+                config["room_id"]: room_node,
+                config["light_id"]: light_node,
+                config["pir_id"]: pir_node
+            }
+        }
+        
+        if "display_id" in config:
+            display_node = {
+                "id": config["display_id"],
+                "control": "Display",
+                "parent": config["room_id"],
+                "ports": [],
+                "properties": {"on": False},
+                "name": f"display_{self.hub_id}",
+                "type": "Display"
+            }
+            self.state["nodes"][config["display_id"]] = display_node
+        
+        self.save_state()
 
     def update_node_property(self, node_id: int, key: str, value: Any):
         if node_id in self.state["nodes"]:
@@ -110,7 +198,16 @@ class LocalHub:
     def handle_event(self, event: Dict[str, Any]):
         if event.get("type") == "USER_ENTERED_ROOM":
             logger.info("Event: USER_ENTERED_ROOM")
-            self.update_node_property(5, "motion_detected", True)
+            
+            # Find PIR sensor in this room
+            pir_node = None
+            for node in self.state["nodes"].values():
+                if node["control"] == "PIR":
+                    pir_node = node
+                    break
+                    
+            if pir_node:
+                self.update_node_property(pir_node["id"], "motion_detected", True)
 
             rules = self.local_rules()
             if not rules:

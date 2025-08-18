@@ -5,31 +5,52 @@ def get_control_schema() -> dict:
     from bigraph_dsl import CONTROL_SCHEMA
     return CONTROL_SCHEMA
 
-def get_prompt(subgraph_state, tool_list):
+def get_prompt(subgraph_state, tool_list, event_data=None):
     schema_json = json.dumps(get_control_schema(), indent=2)
-    return (
-        f"""
-You are an assistant that can query and modify a bigraph via MCP tools. 
+    
+    event_desc = ""
+    if event_data:
+        event_type = event_data.get('type', 'Unknown')
+        event_desc = f"""
+CONTEXT: A "{event_type}" event just occurred, triggering this escalation.
+The system lacks a rule to handle this event automatically.
+"""
 
-You can inspect the graph state, find nodes, and write and save rules. 
+    return f"""
+You are an intelligent automation system for a smart building. Your role is to analyze events and states to create automation rules.
+
+You are a smart home automation assistant that can query and modify a bigraph model of the home. You can inspect the graph state, find nodes, and write and save rules. 
 
 You have access to these tools:
 {tool_list}
 
-**CURRENT STATE TO ANALYZE:**
+{event_desc}
+
+CURRENT STATE:
 {subgraph_state}
 
-**YOUR TASK:**
-Look at the current state and identify automation opportunities. Common patterns to look for:
-1. Motion detected (PIR: motion_detected=True) but lights are off (Light: brightness=0 or False)
-2. No motion detected but lights are on (wasting energy)
-3. Display screens that should respond to room occupancy
-4. Other logical automation rules
+YOUR TASK:
+1. Analyze what event occurred and the current state
+2. Identify what automation would be helpful
+3. Generate a rule that would handle this situation automatically in the future
 
-**OUTPUT FORMAT:**
-You MUST respond with a valid JSON object in this format:
+AUTOMATION PRINCIPLES:
+- Energy efficiency: Turn off unused devices, dim lights when appropriate
+- Comfort: Ensure proper lighting/temperature when spaces are occupied
+- Security: Lock/unlock based on presence and authorization
+- Convenience: Automate repetitive tasks
 
-```json
+COMMON PATTERNS TO CONSIDER:
+- Motion detected → Action needed (lights, displays, HVAC)
+- No motion for period → Energy saving action
+- Person enters/leaves → Adjust environment
+- Time-based → Schedule changes
+- State combinations → Complex conditions
+
+AVAILABLE NODE TYPES AND PROPERTIES:
+{schema_json}
+
+OUTPUT FORMAT - Respond with ONLY valid JSON:
 {{
   "tool": "publish_rule_to_redis",
   "args": {{
@@ -37,50 +58,36 @@ You MUST respond with a valid JSON object in this format:
       "name": "<descriptive_rule_name>",
       "redex": [
         {{
-          "control": "Room",
-          "id": <room_id>,
-          "properties": {{ "name": "<room_name>" }},
-          "children": [
-            {{ "control": "PIR", "id": <pir_id>, "properties": {{ "motion_detected": true }}, "children": [] }},
-            {{ "control": "Light", "id": <light_id>, "properties": {{ "brightness": 0 }}, "children": [] }}
-          ]
+          "control": "<control_name>",
+          "id": <exact_id>,
+          "name": "<node_name>",
+          "type": "<node_type>",
+          "properties": {{<relevant_properties>}},
+          "children": [<child_nodes>]
         }}
       ],
       "reactum": [
         {{
-          "control": "Room", 
-          "id": <room_id>,
-          "properties": {{ "name": "<room_name>" }},
-          "children": [
-            {{ "control": "PIR", "id": <pir_id>, "properties": {{ "motion_detected": true }}, "children": [] }},
-            {{ "control": "Light", "id": <light_id>, "properties": {{ "brightness": 100 }}, "children": [] }}
-          ]
+          "control": "<control_name>",
+          "id": <same_id_as_redex>,
+          "name": "<node_name>",
+          "type": "<node_type>",
+          "properties": {{<updated_properties>}},
+          "children": [<child_nodes>]
         }}
       ]
     }}
   }}
 }}
-```
 
-**RULES FOR RULE GENERATION:**
-- Use exact IDs and property names from the current state
-- Redex: describes the condition that triggers the rule (what to match)
-- Reactum: describes the desired outcome (what should change)
-- Only include properties that are relevant to the rule
-- Property types must match the schema exactly:
+Analyze the situation and generate an appropriate automation rule. Respond with ONLY the JSON, no explanation.
 
-{schema_json}
+IMPORTANT:
+- Use exact IDs from the current state
+- In redex: match the pattern 
+- In reactum: change only what's needed 
+- Include all nodes from redex in reactum, even unchanged ones
+- Each node needs: control, id, properties, children (can be empty [])
 
-**EXAMPLE ANALYSIS:**
-If you see:
-- A room with PIR showing motion_detected=True
-- The same room has Light with brightness=0 or False
-- This suggests someone entered but lights are off
-
-Then generate a rule to turn on lights when motion is detected.
-
-Analyze the current state now and generate an appropriate rule, or use query_state if you need more information.
-
-You do not need to generate a rule if not necessary. 
+Generate the rule now. Respond with ONLY the JSON, no explanation.
 """
-    )
