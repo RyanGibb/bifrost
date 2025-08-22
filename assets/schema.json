@@ -36,36 +36,11 @@
         "mode": {"type": "string", "values": ["welcome", "presentation", "meeting_info", "emergency"]}
       }
     },
-    "Door": {
-      "properties": {
-        "locked": {"type": "bool"},
-        "open": {"type": "bool"}
-      }
-    },
     "TranscriptionUnit": {
       "properties": {
         "active": {"type": "bool"},
         "recording": {"type": "bool"},
         "meeting_id": {"type": "string"}
-      }
-    },
-    "HVAC": {
-      "properties": {
-        "temperature": {"type": "int", "range": [15, 30]},
-        "mode": {"type": "string", "values": ["off", "heating", "cooling", "auto"]},
-        "fan_speed": {"type": "int", "range": [0, 3]}
-      }
-    },
-    "SecurityCamera": {
-      "properties": {
-        "recording": {"type": "bool"},
-        "motion_alert": {"type": "bool"}
-      }
-    },
-    "SmartBoard": {
-      "properties": {
-        "on": {"type": "bool"},
-        "content_url": {"type": "string"}
       }
     },
     "AudioSystem": {
