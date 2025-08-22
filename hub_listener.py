@@ -1,59 +1,159 @@
-#!/usr/bin/env python3
+import re
+import sys
 import json
-import pathlib
-import logging
-import redis
-import subprocess
 import time
-import capnp
-import os
-from typing import Dict, Any, Optional
+import redis
+import logging
+import pathlib
+import argparse
+import subprocess
+from typing import Dict, Any, Optional, Tuple, List
 
-# ==== Logging ====
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] HUB %(levelname)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
+# --- setup / capnp -----------------------------------------------------------
+sys.path.append(str(pathlib.Path(__file__).parent / "lib"))
+from utils import load_state_dict_from_capnp  # noqa: E402
+
+import capnp  # noqa: E402
+capnp.remove_import_hook()
+bigraph_capnp = capnp.load(str(pathlib.Path(__file__).parent / "lib" / "bigraph_rpc.capnp"))
+
+# --- logging -----------------------------------------------------------------
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] HUB %(levelname)s: %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("hub")
 
-# ==== Cap’n Proto schema ====
-capnp.remove_import_hook()
-bigraph_capnp = capnp.load(
-    str(pathlib.Path(__file__).parent / "lib" / "bigraph_rpc.capnp")
-)
-
 class LocalHub:
-    def __init__(self, hub_id: str, parent_channel: str = "building:requests"):
+    # ---------- init / bootstrap ----------
+    def __init__(self, hub_id: str):
+        logger.info("launching hub %s", hub_id)
         self.hub_id = hub_id
-        self.parent_channel = parent_channel
         self.redis_client = redis.Redis()
-
         self.state_file = pathlib.Path(f"{hub_id}_state.capnp")
         self.rules_dir = pathlib.Path(f"rules_store/{hub_id}/")
-        self.rules_dir.mkdir(exist_ok=True)
+        self.rules_dir.mkdir(parents=True, exist_ok=True)
 
-        self.init_room_state()
+        self.state: Dict[str, Any] = {"nodes": {}}
+        self.pending_events: List[dict] = []
+        self.mid_id: Optional[str] = None
 
-    def save_state(self):
-        """Write internal state dict to Cap’n Proto file"""
+        self._load_or_request_state()
+        self._get_mid_from_state()
+
+    def _load_or_request_state(self):
+        if self.state_file.exists():
+            try:
+                current = load_state_dict_from_capnp(self.state_file)
+                if not current.get("nodes"):
+                    self.request_graph("empty_graph")
+            except Exception:
+                self.request_graph("invalid_graph")
+            logger.info("Using graph: %s", self.state_file)
+            self.state = load_state_dict_from_capnp(self.state_file)
+        else:
+            logger.warning("No graph yet; requesting from above")
+            self.request_graph("no_graph")
+
+    # ---------- messaging ----------
+    def _publish(self, channel: str, payload: Dict[str, Any]):
+        self.redis_client.publish(channel, json.dumps(payload))
+
+    def request_graph(self, reason: str = "startup"):
+        payload = {"type": "GRAPH_REQUEST", "hub_id": self.hub_id, "reason": reason}
+        channel = f"mid:{self.mid_id}:requests" if getattr(self, "mid_id", None) else f"hub:{self.hub_id}:requests"
+        self._publish(channel, payload)
+        logger.info("requested graph via %s (%s)", channel, reason)
+
+    def escalate(self, event: Dict[str, Any], reason: str = "no_matching_rules", matched_rule: str | None = None):
+        payload = {
+            "type": "ESCALATION_REQUEST",
+            "hub_id": self.hub_id,
+            "event": event,
+            "timestamp": time.time(),
+            "reason": reason,
+            "graph_file": str(self.state_file),
+            "matched_rule": matched_rule}
+        channel = f"mid:{self.mid_id}:requests" if getattr(self, "mid_id", None) else f"hub:{self.hub_id}:requests"
+        self.redis_client.publish(channel, json.dumps(payload))
+        logger.info("Escalated to %s (%s) rule=%s", channel, reason, matched_rule)
+
+    # ---------- graph ----------
+    def _resolve_selector_to_id(self, selector: str | int) -> Optional[int]:
+        # uid property
+        for nd in self.state["nodes"].values():
+            if nd.get("properties", {}).get("uid") == selector:
+                return nd["id"]
+        # name property or node name
+        for nd in self.state["nodes"].values():
+            nm = nd.get("properties", {}).get("name") or nd.get("name")
+            if nm == selector:
+                return nd["id"]
+        return None
+
+    def _is_descendant(self, child_id: int, ancestor_id: int) -> bool:
+        nodes = self.state["nodes"]
+        parent = nodes.get(child_id, {}).get("parent", -1)
+        while parent != -1 and parent in nodes:
+            if parent == ancestor_id:
+                return True
+            parent = nodes[parent].get("parent", -1)
+        return False
+
+    def _hub_root_id(self) -> Optional[int]:
+        nodes = self.state["nodes"]
+        # find hub node matching this hub_id
+        for nid, nd in nodes.items():
+            if nd.get("control") == "Hub":
+                props = nd.get("properties", {})
+                if props.get("hub_id") == self.hub_id or nd.get("name") == self.hub_id:
+                    return nd.get("parent") if nd.get("parent", -1) != -1 else nid
+        # else: any node with hub_id
+        for nid, nd in nodes.items():
+            if nd.get("properties", {}).get("hub_id") == self.hub_id:
+                return nid
+        if nodes:
+            all_ids = set(nodes.keys())
+            non_roots = {nd.get("parent") for nd in nodes.values() if nd.get("parent", -1) != -1}
+            roots = [i for i in all_ids if i not in non_roots]
+            return roots[0] if roots else None
+        return None
+
+    def _derive_mid_id_from_state(self) -> Optional[str]:
+        # find hub node with this hub_id and a mid_id
+        for nd in self.state["nodes"].values():
+            if nd.get("control") == "Hub":
+                props = nd.get("properties", {})
+                if props.get("hub_id") == self.hub_id and "mid_id" in props:
+                    return props["mid_id"]
+        # else: any node with mid_id
+        for nd in self.state["nodes"].values():
+            mid = nd.get("properties", {}).get("mid_id")
+            if isinstance(mid, str) and mid:
+                return mid
+        return None
+
+    def _get_mid_from_state(self):
+        self.mid_id = self._derive_mid_id_from_state()
+        if self.mid_id:
+            logger.info("Hub %s learned mid_id=%s", self.hub_id, self.mid_id)
+
+    def save_state_dict_to_capnp(self):
         msg = bigraph_capnp.Bigraph.new_message()
         msg.siteCount = 0
         msg.names = []
-
         nodes = list(self.state["nodes"].values())
-        capnp_nodes = msg.init("nodes", len(nodes))
+        cap_nodes = msg.init("nodes", len(nodes))
         for i, nd in enumerate(nodes):
-            capnp_nodes[i].id = nd["id"]
-            capnp_nodes[i].control = nd["control"]
-            capnp_nodes[i].arity = len(nd["ports"])
-            capnp_nodes[i].parent = nd["parent"] if nd["parent"] is not None else -1
-            if nd["ports"]:
-                ports = capnp_nodes[i].init("ports", len(nd["ports"]))
-                for j, port in enumerate(nd["ports"]):
-                    ports[j] = port
-            if nd["properties"]:
-                props = capnp_nodes[i].init("properties", len(nd["properties"]))
+            cap_nodes[i].id = nd["id"]
+            cap_nodes[i].control = nd["control"]
+            cap_nodes[i].arity = len(nd.get("ports", []))
+            cap_nodes[i].parent = nd.get("parent", -1) if nd.get("parent") is not None else -1
+            cap_nodes[i].name = nd.get("name", f"node_{nd['id']}")
+            cap_nodes[i].type = nd.get("type", nd["control"])
+            if nd.get("ports"):
+                ports = cap_nodes[i].init("ports", len(nd["ports"]))
+                for j, p in enumerate(nd["ports"]):
+                    ports[j] = p
+            if nd.get("properties"):
+                props = cap_nodes[i].init("properties", len(nd["properties"]))
                 for j, (k, v) in enumerate(nd["properties"].items()):
                     props[j].key = k
                     if isinstance(v, bool):
@@ -64,199 +164,290 @@ class LocalHub:
                         props[j].value.floatVal = v
                     elif isinstance(v, str):
                         props[j].value.stringVal = v
-
         with self.state_file.open("wb") as f:
             msg.write(f)
-        logger.info("Saved state to %s", self.state_file)
 
     def update_node_property(self, node_id: int, key: str, value: Any):
-        if node_id in self.state["nodes"]:
-            self.state["nodes"][node_id]["properties"][key] = value
-            self.save_state()
-            
-    def init_room_state(self):
-        """Initialize state based on hub_id - map hub to room"""
-        # Map hub IDs to room configurations
-        room_configs = {
-            "room42": {
-                "room_id": 1,
-                "room_name": "MeetingRoom42",
-                "light_id": 2,
-                "display_id": 3,
-                "pir_id": 4
-            },
-            "office1": {
-                "room_id": 10,
-                "room_name": "Office1", 
-                "light_id": 11,
-                "pir_id": 12
-            },
-            "conference": {
-                "room_id": 20,
-                "room_name": "ConferenceA",
-                "light_id": 21,
-                "pir_id": 22
-            }
-        }
-        
-        config = room_configs.get(self.hub_id)
-        if not config:
-            logger.error(f"Unknown hub_id: {self.hub_id}")
+        node = self.state["nodes"].get(node_id)
+        if not node:
             return
-            
-        # Build initial state
-        room_node = {
-            "id": config["room_id"],
-            "control": "Room",
-            "parent": None,
-            "ports": [],
-            "properties": {"name": config["room_name"]},
-            "name": config["room_name"],
-            "type": "Room"
-        }
-        
-        light_node = {
-            "id": config["light_id"],
-            "control": "Light",
-            "parent": config["room_id"],
-            "ports": [],
-            "properties": {"brightness": 0},  # Start with lights off
-            "name": f"light_{self.hub_id}",
-            "type": "Light"
-        }
-        
-        pir_node = {
-            "id": config["pir_id"],
-            "control": "PIR",
-            "parent": config["room_id"],
-            "ports": [],
-            "properties": {"motion_detected": False},
-            "name": f"pir_{self.hub_id}",
-            "type": "PIR"
-        }
-        
-        self.state = {
-            "nodes": {
-                config["room_id"]: room_node,
-                config["light_id"]: light_node,
-                config["pir_id"]: pir_node
-            }
-        }
-        
-        if "display_id" in config:
-            display_node = {
-                "id": config["display_id"],
-                "control": "Display",
-                "parent": config["room_id"],
-                "ports": [],
-                "properties": {"on": False},
-                "name": f"display_{self.hub_id}",
-                "type": "Display"
-            }
-            self.state["nodes"][config["display_id"]] = display_node
-        
-        self.save_state()
+        node.setdefault("properties", {})[key] = value
+        self.save_state_dict_to_capnp()
 
-    def update_node_property(self, node_id: int, key: str, value: Any):
-        if node_id in self.state["nodes"]:
-            self.state["nodes"][node_id]["properties"][key] = value
-            self.save_state()
+    # ---------- occupancy ----------
+    def _resolve_space_id(self, selector: str | int) -> Optional[int]:
+        return self._resolve_selector_to_id(selector)
 
-    # === Rules ===
-    def local_rules(self):
-        return list(self.rules_dir.glob("*.capnp"))
+    def _set_occupancy(self, space_id: int, value: int):
+        node = self.state["nodes"].get(space_id)
+        if not node:
+            return
+        node.setdefault("properties", {})["occupancy"] = max(0, value)
+        self.save_state_dict_to_capnp()
 
-    def apply_rule(self, rule_file: pathlib.Path) -> bool:
-        """Apply an OCaml rule via bridge.exe"""
-        cmd = [
-            "_build/default/bin/bridge.exe",
-            str(rule_file),
-            str(self.state_file),
-        ]
-        res = subprocess.run(cmd, text=True, capture_output=True)
-        if res.returncode == 0:
-            logger.info("Applied rule: %s", rule_file.name)
-            return True
-        else:
-            logger.warning("Rule failed: %s (%s)", rule_file.name, res.stderr.strip())
-            return False
+    def _get_occupancy(self, space_id: int) -> int:
+        try:
+            return int(self.state["nodes"].get(space_id, {}).get("properties", {}).get("occupancy", 0))
+        except Exception:
+            return 0
 
-    # === Escalation to parent ===
-    def escalate(self, event: Dict[str, Any]):
-        payload = {
-            "type": "ESCALATION_REQUEST",
-            "hub_id": self.hub_id,
-            "timestamp": time.time(),
-            "event": event,
-            "graph_file": str(self.state_file),
-        }
-        self.redis_client.publish(self.parent_channel, json.dumps(payload))
-        logger.info("Escalated event to parent channel '%s'", self.parent_channel)
-
-    # === Event handling ===
-    # TODO hardcoded for now
-    def handle_event(self, event: Dict[str, Any]):
-        if event.get("type") == "USER_ENTERED_ROOM":
-            logger.info("Event: USER_ENTERED_ROOM")
-            
-            # Find PIR sensor in this room
-            pir_node = None
-            for node in self.state["nodes"].values():
-                if node["control"] == "PIR":
-                    pir_node = node
-                    break
-                    
-            if pir_node:
-                self.update_node_property(pir_node["id"], "motion_detected", True)
-
-            rules = self.local_rules()
-            if not rules:
-                logger.info("No local rules — escalating to parent")
-                self.escalate(event)
-                return
-
-            applied = False
-            for rf in rules:
-                if self.apply_rule(rf):
-                    logger.info("Success")
-                    applied = True
-
-            if not applied:
-                logger.info("No rules matched — escalating to parent")
-                self.escalate(event)
-
-    # === Hub runtime ===
-    def listen(self):
-        event_channel = f"iot:events:{self.hub_id}"
-        rule_channel = f"hub:{self.hub_id}:rules"
-        ps = self.redis_client.pubsub()
-        ps.subscribe([event_channel, rule_channel])
-
-        logger.info("Listening on %s (events) and %s (rules)", event_channel, rule_channel)
-        for msg in ps.listen():
-            if msg["type"] != "message":
+    def _find_user_node(self, user: str) -> Tuple[Optional[int], Optional[int]]:
+        for nid, node in self.state["nodes"].items():
+            if node.get("control") != "User":
                 continue
-            try:
-                data = msg["data"]
-                # Rule channel — binary capnp
-                if msg["channel"].decode() == rule_channel:
-                    rule_path = self.rules_dir / f"rule_{int(time.time())}.capnp"
-                    with rule_path.open("wb") as f:
-                        f.write(data)
-                    logger.info("Received new rule from parent: %s", rule_path.name)
+            props = node.get("properties", {})
+            if props.get("uid") == user or props.get("email") == user:
+                return nid, node.get("parent")
+        return None, None
+
+    def _adjust_space_occupancy(self, space_id: Optional[int], delta: int):
+        if space_id is None or space_id not in self.state["nodes"]:
+            return
+        self._set_occupancy(space_id, max(0, self._get_occupancy(space_id) + delta))
+
+    def add_user(self, user: str, space_id: int):
+        if space_id not in self.state["nodes"]:
+            logger.warning("Space %s not found", space_id)
+            return
+
+        parent_node = self.state["nodes"][space_id]
+        space_name = parent_node.get("properties", {}).get("name", f"space_{space_id}")
+        hub_id = parent_node.get("properties", {}).get("hub_id", self.hub_id)
+
+        existing_id = None
+        for nid, node in self.state["nodes"].items():
+            if node.get("control") == "User":
+                props = node.get("properties", {})
+                if props.get("uid") == user or props.get("email") == user:
+                    existing_id = nid
+                    break
+
+        if existing_id is not None:
+            self.state["nodes"][existing_id]["parent"] = space_id
+            self.state["nodes"][existing_id].setdefault("properties", {}).update(
+                {"space": space_name, "hub_id": hub_id})
+            logger.info("Moved user %s (id=%d) to space %s", user, existing_id, space_name)
+        else:
+            new_id = max(self.state["nodes"].keys(), default=0) + 1
+            self.state["nodes"][new_id] = {
+                "id": new_id,
+                "control": "User",
+                "parent": space_id,
+                "properties": {"uid": user, "email": user, "space": space_name, "hub_id": hub_id}}
+            logger.info("Added user %s (id=%d) to space %s", user, new_id, space_name)
+
+        self.save_state_dict_to_capnp()
+
+    def rm_user(self, user: str):
+        for nid, node in list(self.state["nodes"].items()):
+            if node.get("control") == "User":
+                props = node.get("properties", {})
+                if props.get("uid") == user or props.get("email") == user:
+                    del self.state["nodes"][nid]
+                    logger.info("Removed user %s (node id=%d)", user, nid)
+                    self.save_state_dict_to_capnp()
+                    return
+        logger.warning("No user %s found", user)
+
+    def update_occupancy(
+        self,
+        space_selector: str | int | None,
+        entered: Optional[List[str]] = None,
+        left: Optional[List[str]] = None,
+    ):
+        entered = entered or []
+        left = left or []
+
+        sid = None
+        if entered:
+            sid = self._resolve_space_id(space_selector) if space_selector is not None else None
+            if sid is None:
+                logger.warning("Space '%s' not found", space_selector)
+                entered = []
+
+        for u in entered:
+            _, prev_space = self._find_user_node(u)
+            self.add_user(u, sid)
+            if prev_space is not None and prev_space != sid:
+                self._adjust_space_occupancy(prev_space, -1)
+            self._adjust_space_occupancy(sid, +1)
+
+        for u in left:
+            user_node_id, prev_space = self._find_user_node(u)
+            exit_sid = self._resolve_space_id(space_selector) if space_selector is not None else prev_space
+            if prev_space is not None and exit_sid == prev_space:
+                self.rm_user(u)
+                self._adjust_space_occupancy(prev_space, -1)
+            else:
+                if user_node_id is None:
+                    logger.info("Left: user %s not found; no-op", u)
                 else:
-                    event = json.loads(data)
-                    self.handle_event(event)
+                    logger.info(
+                        "Left: user %s current space=%s does not match provided space=%s; no-op",
+                        u,
+                        prev_space,
+                        exit_sid,
+                    )
+
+    # ---------- rules ----------
+    def get_rules(self) -> List[pathlib.Path]:
+        return sorted(self.rules_dir.glob("*.capnp"))
+
+    def _is_escalate(self, rule_name: str) -> bool:
+        return rule_name.startswith("ESCALATE__")
+
+    def _get_rule_name(self, rule_file: pathlib.Path) -> str:
+        try:
+            with rule_file.open("rb") as f:
+                rule = bigraph_capnp.Rule.read(f)
+            return rule.name
+        except Exception:
+            return rule_file.name
+
+
+    def apply_rule(self, rule_file: pathlib.Path) -> Tuple[bool, bool, str]:
+        """
+        returns: (matched, is_escalate, rule_name)
+
+        we consider a rule "matched" iff:
+        - "can apply rule: true" from bridge.ml
+        """
+        rule_name = self._get_rule_name(rule_file)
+        is_escal = self._is_escalate(rule_name)
+
+        res = subprocess.run(
+            ["_build/default/bin/bridge.exe", str(rule_file), str(self.state_file)],
+            text=True,
+            capture_output=True)
+
+        out = (res.stdout or "")
+        m = re.search(r"Can apply rule:\s*(true|false)", out, flags=re.IGNORECASE)
+        if m:
+            can_apply = (m.group(1).lower() == "true")
+
+        matched = bool(can_apply)
+
+        # NOTE: bridge.ml does NOT persist the result state to file; this is only a match check.
+        logger.info("Rule check: %s (matched=%s, escal=%s)", rule_name, matched, is_escal)
+        return matched, is_escal, rule_name
+
+    # ---------- events ----------
+    def _handle_event_payload(self, ch: str, raw: bytes):
+        if ch.endswith(":rules"):
+            rule_path = self.rules_dir / f"rule_{int(time.time())}.capnp"
+            rule_path.write_bytes(raw)
+            logger.info("received new rule: %s", rule_path.name)
+            return
+
+        if ch.endswith(":graph"):
+            self.state_file.write_bytes(raw)
+            self.state = load_state_dict_from_capnp(self.state_file)
+            self._get_mid_from_state()
+            logger.info("Saved graph to %s (mid_id=%s)", self.state_file, getattr(self, "mid_id", None))
+            if self.pending_events:
+                backlog = self.pending_events[:]
+                self.pending_events.clear()
+                for ev in backlog:
+                    self.handle_event(ev)
+            return
+
+        event = json.loads(raw)
+        self.handle_event(event)
+
+    def handle_event(self, event: dict):
+        et = event.get("type")
+        ed = event.get("data", {})
+
+        if not self.state["nodes"]:
+            self.request_graph("no_graph_yet")
+            self.pending_events.append(event)
+            return
+
+        ########################################################################
+        # TODO sort out
+        if et == "USER_ENTERED_ROOM":
+            space, user = ed.get("space"), ed.get("user")
+            if space and user:
+                self.update_occupancy(space, entered=[user])
+
+        elif et == "MULTIPLE_USERS_ENTERED":
+            space, users = ed.get("space"), ed.get("users", [])
+            if space and users:
+                self.update_occupancy(space, entered=users)
+
+        elif et == "USER_LEFT_ROOM":
+            space, user = ed.get("space"), ed.get("user")
+            if space and user:
+                self.update_occupancy(space, left=[user])
+
+        elif et == "MULTIPLE_USERS_LEFT":
+            space, users = ed.get("space"), ed.get("users", [])
+            if space and users:
+                self.update_occupancy(space, left=users)
+
+        elif et == "SCHEDULED_MEETING_STARTED":
+            meeting_id = ed.get("meeting_id", "")
+            for node in self.state["nodes"].values():
+                if node.get("control") == "TranscriptionUnit":
+                    self.update_node_property(node["id"], "meeting_id", meeting_id)
+        ########################################################################
+
+        # ---- rules & escalation ----
+        rules = self.get_rules()
+        if not rules:
+            self.escalate(event, reason="no_stored_rules")
+            return
+
+        any_matched = False
+        first_escalate_rule = None
+
+        for rf in rules:
+            matched, is_esc, rname = self.apply_rule(rf)
+            if matched:
+                any_matched = True
+                try:
+                    self.state = load_state_dict_from_capnp(self.state_file)
+                except Exception as e:
+                    logger.warning("Applied rule but failed to reload state: %s", e)
+                if is_esc and first_escalate_rule is None:
+                    first_escalate_rule = rname
+
+        if not any_matched:
+            self.escalate(event, reason="no_matched_rules")
+            return
+
+        if first_escalate_rule:
+            self.escalate(event, reason="rule_requested_escalation", matched_rule=first_escalate_rule)
+            return
+
+    def listen(self):
+        event_chl = f"iot:events:{self.hub_id}"
+        rule_chl = f"hub:{self.hub_id}:rules"
+        graph_chl = f"hub:{self.hub_id}:graph"
+
+        ps = self.redis_client.pubsub()
+        ps.subscribe([event_chl, rule_chl, graph_chl])
+        logger.info("Listening on %s (events), %s (rules), %s (graph)", event_chl, rule_chl, graph_chl)
+
+        for msg in ps.listen():
+            if msg.get("type") != "message":
+                continue
+            ch = msg["channel"].decode()
+            try:
+                self._handle_event_payload(ch, msg["data"])
             except Exception as e:
-                logger.error("Error processing message: %s", e)
+                logger.error("Error processing msg: %s", e)
+
+
+# ============================================================================
+# main
+# ============================================================================
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("hub_id", help="hub ID (e.g., exec, alpha, beta, open)")
+    args = parser.parse_args()
+    LocalHub(args.hub_id).listen()
 
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} HUB_ID")
-        sys.exit(1)
-
-    hub_id = sys.argv[1]
-    hub = LocalHub(hub_id)
-    hub.listen()
+    main()
