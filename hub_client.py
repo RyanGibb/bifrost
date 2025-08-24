@@ -8,8 +8,7 @@ def send_event(hub_id: str, event_type: str, event_data: dict | None = None):
     event = {
     "type": event_type,
     "timestamp": time.time(),
-    "data": event_data or {},
-    }
+    "data": event_data or {}}
     channel = f"iot:events:{hub_id}"
     r.publish(channel, json.dumps(event))
     print(f"Sent {event_type} to {channel}")

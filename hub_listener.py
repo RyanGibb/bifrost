@@ -175,6 +175,8 @@ class LocalHub:
         self.save_state_dict_to_capnp()
 
     # ---------- occupancy ----------
+    # TODO sort out later
+
     def _resolve_space_id(self, selector: str | int) -> Optional[int]:
         return self._resolve_selector_to_id(selector)
 
@@ -249,12 +251,7 @@ class LocalHub:
                     return
         logger.warning("No user %s found", user)
 
-    def update_occupancy(
-        self,
-        space_selector: str | int | None,
-        entered: Optional[List[str]] = None,
-        left: Optional[List[str]] = None,
-    ):
+    def update_occupancy(self, space_selector: str | int | None, entered: Optional[List[str]] = None, left: Optional[List[str]] = None,):
         entered = entered or []
         left = left or []
 
@@ -304,31 +301,85 @@ class LocalHub:
         except Exception:
             return rule_file.name
 
+    def _current_rev_ts(self) -> int:
+        rid = self._hub_root_id()
+        if rid is None: return 0
+        try:
+            return int(self.state["nodes"][rid].get("properties", {}).get("rev_ts", 0))
+        except Exception:
+            return 0
 
+    def _bump_rev(self, who: str = "hub"):
+        rid = self._hub_root_id()
+        if rid is None:
+            return
+        now = int(time.time() * 1000)
+        self.update_node_property(rid, "rev_ts", now)
+        self.update_node_property(rid, "rev_by", who)
+
+    def _atomic_replace_state_bytes(self, raw: bytes):
+        tmp = self.state_file.with_suffix(".capnp.tmp")
+        tmp.write_bytes(raw)
+        tmp.replace(self.state_file)
+
+    def _is_incoming_graph_stale(self, incoming_path: pathlib.Path) -> bool:
+        try:
+            incoming = load_state_dict_from_capnp(incoming_path)
+            rid = self._hub_root_id()
+            if rid is None:
+                return False
+            cur = self._current_rev_ts()
+            inc = int(incoming["nodes"][rid].get("properties", {}).get("rev_ts", 0))
+            return inc <= cur
+        except Exception:
+            return False
+        
     def apply_rule(self, rule_file: pathlib.Path) -> Tuple[bool, bool, str]:
         """
         returns: (matched, is_escalate, rule_name)
 
-        we consider a rule "matched" iff:
-        - "can apply rule: true" from bridge.ml
+        behavior:
+        - bridge.exe both checks and, when matched, writes the new state to self.state_file.
+        - we treat 'rule applied successfully!' as the write signal (needs upated to something more explicit later)
         """
         rule_name = self._get_rule_name(rule_file)
         is_escal = self._is_escalate(rule_name)
 
-        res = subprocess.run(
-            ["_build/default/bin/bridge.exe", str(rule_file), str(self.state_file)],
-            text=True,
-            capture_output=True)
+        try:
+            res = subprocess.run(
+                ["_build/default/bin/bridge.exe", str(rule_file), str(self.state_file)],
+                text=True,
+                capture_output=True,
+                timeout=15.0,                     # NEW: timeout
+                check=False
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning("bridge.exe timed out applying %s", rule_name)
+            return False, is_escal, rule_name
 
-        out = (res.stdout or "")
+        out = (res.stdout or "") + ("\n" + res.stderr if res.stderr else "")
+
+        can_apply = False
+        applied = False
         m = re.search(r"Can apply rule:\s*(true|false)", out, flags=re.IGNORECASE)
         if m:
             can_apply = (m.group(1).lower() == "true")
+        if re.search(r"Rule applied successfully!", out, flags=re.IGNORECASE):
+            applied = True
 
-        matched = bool(can_apply)
+        matched = bool(can_apply or applied)
 
-        # NOTE: bridge.ml does NOT persist the result state to file; this is only a match check.
-        logger.info("Rule check: %s (matched=%s, escal=%s)", rule_name, matched, is_escal)
+        logger.info("Rule check: %s (matched=%s, escal=%s, applied=%s, rc=%s)",
+                    rule_name, matched, is_escal, applied, res.returncode)
+
+        # If applied, reload and bump rev timestamp (for CAS)
+        if applied:
+            try:
+                self.state = load_state_dict_from_capnp(self.state_file)
+                self._bump_rev("hub")            # NEW: mark fresh local write
+            except Exception as e:
+                logger.warning("Applied rule but failed to reload state: %s", e)
+
         return matched, is_escal, rule_name
 
     # ---------- events ----------
@@ -340,10 +391,20 @@ class LocalHub:
             return
 
         if ch.endswith(":graph"):
-            self.state_file.write_bytes(raw)
+            # CAS-lite: ignore stale region slices
+            tmp_in = self.state_file.with_suffix(".incoming.capnp")
+            tmp_in.write_bytes(raw)
+            if self._is_incoming_graph_stale(tmp_in):
+                logger.info("Ignored stale incoming graph (rev_ts<=current)")
+                try: tmp_in.unlink()
+                except Exception: pass
+                return
+
+            self._atomic_replace_state_bytes(raw)
             self.state = load_state_dict_from_capnp(self.state_file)
             self._get_mid_from_state()
             logger.info("Saved graph to %s (mid_id=%s)", self.state_file, getattr(self, "mid_id", None))
+
             if self.pending_events:
                 backlog = self.pending_events[:]
                 self.pending_events.clear()

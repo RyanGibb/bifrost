@@ -39,6 +39,26 @@ def _node_name_like(n):
 def _ids_from_msg(msg) -> set[int]:
     return {n.id for n in msg.nodes}
 
+# TODO move 2 utils
+def _mint_uid(prefix: str = "n") -> str:
+    import uuid, time
+    # ULID would be nicer; keep it stdlib: time-ordered-ish prefix + short uuid
+    return f"{prefix}_{int(time.time()*1000)}_{uuid.uuid4().hex[:8]}"
+
+# TODO move 2 utils
+def _ensure_reactum_uids(rule_or_rules):
+    def ensure_on_rule(r: dict):
+        for nd in r.get("reactum", []) or []:
+            props = nd.setdefault("properties", {})
+            if not props.get("uid"):
+                props["uid"] = _mint_uid()
+    if isinstance(rule_or_rules, dict):
+        ensure_on_rule(rule_or_rules)
+    else:
+        for r in (rule_or_rules or []):
+            if isinstance(r, dict): ensure_on_rule(r)
+    return rule_or_rules
+
 def _build_graph_from_nodes(src_msg, node_ids): 
     idset = set(node_ids) 
     nodes = [n for n in src_msg.nodes if n.id in idset] 
@@ -263,9 +283,10 @@ async def push_regions_to_mids(r: redis.Redis):
     mids = _find_midservers(master)
     logger.info("Discovered %d mid servers", len(mids))
     for m in mids:
+        now_ms = str(int(asyncio.get_event_loop().time() * 1000))
         region_slice = _build_graph_from_nodes(master, _collect_subtree_ids(master, m["region_root_id"]))
+        region_slice = _add_or_update_string_prop_on_node(region_slice, m["region_root_id"], "rev_ts", now_ms)
         await r.publish(f"mid:{m['mid_id']}:graph", region_slice.to_bytes())
-        logger.info("Pushed region slice to mid:%s:graph", m["mid_id"])
 
 # ---------- escalate ----------
 def _is_noop_rule(rule: dict) -> bool:
@@ -280,6 +301,45 @@ def _validate_escalate_rules(rules: list[dict]) -> tuple[bool, str]:
         if isinstance(nm, str) and nm.startswith("ESCALATE__") and not _is_noop_rule(r):
             return False, f"Rule '{nm}' must be a strict no-op (reactum == redex)."
     return True, ""
+
+# TODO move 2 utils
+def _add_or_update_string_prop_on_node(msg, node_id: int, key: str, value: str):
+    out = bigraph_capnp.Bigraph.new_message()
+    out.siteCount = getattr(msg, "siteCount", 0)
+    out.names = list(getattr(msg, "names", []))
+    prop_lens, need_add = [], []
+    for n in msg.nodes:
+        found = any(p.key == key for p in n.properties)
+        prop_lens.append(len(n.properties) + (1 if (n.id == node_id and not found) else 0))
+        need_add.append(n.id == node_id and not found)
+    cap_nodes = out.init("nodes", len(msg.nodes))
+    for i, n in enumerate(msg.nodes):
+        cap_nodes[i].id = n.id
+        cap_nodes[i].control = n.control
+        cap_nodes[i].arity = n.arity
+        cap_nodes[i].parent = n.parent
+        try: cap_nodes[i].name = getattr(n, "name", f"node_{n.id}")
+        except Exception: pass
+        try: cap_nodes[i].type = getattr(n, "type", n.control)
+        except Exception: pass
+        if len(n.ports):
+            ports = cap_nodes[i].init("ports", len(n.ports))
+            for j, p in enumerate(n.ports): ports[j] = p
+        plen = prop_lens[i]
+        if plen:
+            props = cap_nodes[i].init("properties", plen)
+            for j, p in enumerate(n.properties):
+                props[j].key = p.key
+                cp_prop_value(props[j].value, p.value)
+            if n.id == node_id:
+                for j in range(len(n.properties)):
+                    if props[j].key == key:
+                        props[j].value.stringVal = str(value)
+                        break
+                else:
+                    props[len(n.properties)].key = key
+                    props[len(n.properties)].value.stringVal = str(value)
+    return out
 
 async def handle_escalation(payload: dict, backend: str):
     """
@@ -419,6 +479,7 @@ HARD CONSTRAINTS (CLOUD):
 
                 if tool == "publish_rule_to_redis":
                     rule = args.get("rule", {})
+                    rule = _ensure_reactum_uids(rule)
                     ok, err = _enforce_scope(rule)
                     if not ok:
                         conversation_history.append({"tool": tool, "args": args, "error": err})
@@ -440,6 +501,7 @@ HARD CONSTRAINTS (CLOUD):
 
                 if tool == "publish_rules_batch":
                     rules = args.get("rules", [])
+                    rules = _ensure_reactum_uids(rules)
                     ok, err = _enforce_scope(rules)
                     if not ok:
                         conversation_history.append({"tool": tool, "args": args, "error": err})

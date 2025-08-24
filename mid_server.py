@@ -52,6 +52,26 @@ def _node_name_like(n):
     except Exception:
         return ""
 
+# TODO move 2 utils
+def _mint_uid(prefix: str = "n") -> str:
+    import uuid, time
+    # ULID would be nicer; keep it stdlib: time-ordered-ish prefix + short uuid
+    return f"{prefix}_{int(time.time()*1000)}_{uuid.uuid4().hex[:8]}"
+
+# TODO move 2 utils
+def _ensure_reactum_uids(rule_or_rules):
+    def ensure_on_rule(r: dict):
+        for nd in r.get("reactum", []) or []:
+            props = nd.setdefault("properties", {})
+            if not props.get("uid"):
+                props["uid"] = _mint_uid()
+    if isinstance(rule_or_rules, dict):
+        ensure_on_rule(rule_or_rules)
+    else:
+        for r in (rule_or_rules or []):
+            if isinstance(r, dict): ensure_on_rule(r)
+    return rule_or_rules
+
 def _resolve_selector_to_id(msg, selector: str | int):
     for n in msg.nodes:
         if _get_prop(n, "uid") == selector:
@@ -137,7 +157,7 @@ def _validate_escalate_rules(rules: list[dict]) -> tuple[bool, str]:
 def _merge_local_into_region(local_msg, region_msg):
     """merge a hub's subgraph into region keyed by (hub_id/name, control)."""
     def key_of(node):
-        return (_get_prop(node, "hub_id") or _get_prop(node, "name") or getattr(node, "name", ""), node.control)
+        return (_get_prop(n, "uid") or _get_prop(node, "hub_id") or _get_prop(node, "name") or getattr(node, "name", ""), node.control)
 
     idset = {n.id for n in local_msg.nodes}
     roots = [n for n in local_msg.nodes if n.parent not in idset or n.parent == -1]
@@ -168,6 +188,7 @@ def _merge_local_into_region(local_msg, region_msg):
         cap_nodes[i] = n
     return out
 
+# TODO more 2 utils
 def _add_or_update_string_prop_on_node(msg, node_id: int, key: str, value: str):
     out = bigraph_capnp.Bigraph.new_message()
     out.siteCount = getattr(msg, "siteCount", 0)
@@ -263,6 +284,26 @@ async def _call_tool_safe(client: Client, name: str, params: dict | None = None)
             return await client.call_tool(name, {"args": params})
         raise
 
+def _extract_last_json_object(s: str) -> str | None:
+    # scan backwards for a balanced {...} - bit crude
+    stack = 0
+    end = None
+    for i, ch in enumerate(s):
+        if ch == '{':
+            stack += 1
+        elif ch == '}':
+            stack -= 1
+            if stack == 0:
+                end = i
+    if end is None:
+        return None
+    # find the first '{' that leads to this balanced end
+    start = s.find('{')
+    if start == -1 or start > end:
+        return None
+    blob = s[start:end+1]
+    return blob
+
 async def mid_step(prompt: str) -> tuple[str | None, dict]:
     """
     parse LLM's JSON: returns (verb, args) where verb ∈ allowed set, else ('escalate', {}).
@@ -276,7 +317,13 @@ async def mid_step(prompt: str) -> tuple[str | None, dict]:
     try:
         data = json.loads(s)
     except json.JSONDecodeError:
-        return "escalate", {}
+        blob = _extract_last_json_object(s)
+        if not blob:
+            return "escalate", {}
+        try:
+            data = json.loads(blob)
+        except Exception:
+            return "escalate", {}
 
     verb = data.get("tool") or data.get("decision")
     args = data.get("args") if isinstance(data.get("args"), dict) else {}
@@ -327,9 +374,10 @@ class MidServer:
     async def _fan_out_hubs(self, region_msg):
         for hub_id, root_id in self._discover_hubs(region_msg):
             slice_ids = _collect_subtree_ids(region_msg, root_id)
+            now_ms = str(int(asyncio.get_running_loop().time() * 1000))
             hub_slice = _add_or_update_string_prop_on_node(
                 _build_graph_from_nodes(region_msg, slice_ids),
-                root_id, "mid_id", self.mid_id
+                root_id, "rev_ts", now_ms
             )
             await self.redis.publish(f"hub:{hub_id}:graph", hub_slice.to_bytes())
             logger.info("mid:%s pushed hub slice to hub:%s:graph (root=%s)", self.mid_id, hub_id, root_id)
@@ -431,6 +479,7 @@ class MidServer:
 
                 if verb == "publish_rule_to_redis":
                     rule = args.get("rule") if isinstance(args, dict) else None
+                    rule = _ensure_reactum_uids(rule)
                     if not isinstance(rule, dict):
                         conversation_history.append({"tool": verb, "error": "missing or invalid rule"}); step += 1; continue
                     ok, msg = enforce_scope(rule)
@@ -448,6 +497,7 @@ class MidServer:
 
                 if verb == "publish_rules_batch":
                     rules = args.get("rules") if isinstance(args, dict) else None
+                    rules = _ensure_reactum_uids(rules)
                     if not isinstance(rules, list) or not rules:
                         conversation_history.append({"tool": verb, "error": "missing or empty rules"}); step += 1; continue
                     ok, msg = enforce_scope(rules)
