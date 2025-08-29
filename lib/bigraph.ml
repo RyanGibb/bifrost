@@ -1,4 +1,4 @@
-open Yojson.Safe
+(* open Yojson.Safe *)
 
 (* Core types *)
 type node_id   = int
@@ -7,7 +7,7 @@ type port_id   = int
 type site_id   = int
 type region_id = int
 
-let schema_path = "../assets/schema.json"
+(* let schema_path = "../assets/schema.json" *)
 
 (* ---------- ordered wrappers & containers ------------------------- *)
 
@@ -51,13 +51,13 @@ module RegionMap = Map.Make (RegionId)
 (* ---------- controls & nodes ------------------------------------- *)
 type control = { name : string; arity : int }
 
-type property_type =
+(* type property_type =
     | IntRange of (int * int)
     | TInt
     | TBool
     | TString of string list
     | TFloat
-    | TColor
+    | TColor *)
 
 type property_value =
   | Bool   of bool
@@ -68,7 +68,7 @@ type property_value =
 
 type properties = (string * property_value) list
 
-let load_schema () =
+(* let load_schema () =
   try
     let json = from_file schema_path in
     match json with
@@ -113,7 +113,7 @@ let load_schema () =
         schema_tbl
     | _ -> failwith "Malformed schema file"
   with
-  | _ -> Hashtbl.create 0
+  | _ -> Hashtbl.create 0 *)
 
 type node = {
   id         : node_id;       (* This is THE unique identifier *)
@@ -199,7 +199,7 @@ let find_nodes_by_type bg node_type =
   
 let create_control name arity = { name; arity }
 
-let schema = load_schema ()
+(* let schema = load_schema () *)
 
 let get_next_available_id bigraph =
   let max_id = 
@@ -207,7 +207,7 @@ let get_next_available_id bigraph =
   in
   max_id + 1
 
-let validate_property control_name prop_name value =
+(* let validate_property control_name prop_name value =
   match Hashtbl.find_opt schema control_name with
   | None -> ()
   | Some prop_tbl ->
@@ -224,7 +224,7 @@ let validate_property control_name prop_name value =
           | _ -> failwith "Type mismatch for property"
 
 let validate_properties control_name props =
-  List.iter (fun (k, v) -> validate_property control_name k v) props
+  List.iter (fun (k, v) -> validate_property control_name k v) props *)
 
 let add_node_to_root bigraph node =
   if NodeMap.mem node.id bigraph.place.nodes then
@@ -251,7 +251,7 @@ let add_node_as_child bigraph parent_id child_node =
 
 let create_node ?props ~name ~node_type id control =
   let ports = List.init control.arity (fun i -> id * 1000 + i) in
-  Option.iter (validate_properties control.name) props;
+  (* Option.iter (validate_properties control.name) props; *)
   { id; name; node_type; control; ports; properties = props }
 
 let create_node_auto_id ?props ~name ~node_type bigraph control =
@@ -265,7 +265,7 @@ let get_node_property node key =
   | Some ps -> List.assoc_opt key ps
 
 let set_node_property node key value =
-  validate_property node.control.name key value;
+  (* validate_property node.control.name key value; *)
   let new_props =
     match node.properties with
     | None -> [key, value]

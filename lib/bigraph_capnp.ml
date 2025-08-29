@@ -322,7 +322,7 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
       let int_val_get_int_exn x =
         Capnp.Runtime.Util.int_of_int32_exn (int_val_get x)
       let float_val_get x =
-        RA_.get_float64 ~default_bits:(0L) x 8
+        RA_.get_float32 ~default_bits:(0l) x 4
       let has_string_val x =
         RA_.has_field x 0
       let string_val_get x =
@@ -481,13 +481,13 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
           BA_.get_uint8 ~default:0 x 6
         let b_set_exn x v =
           BA_.set_uint8 ~default:0 x 6 v
-        let of_message x = BA_.get_root_struct ~data_words:2 ~pointer_words:1 x
+        let of_message x = BA_.get_root_struct ~data_words:1 ~pointer_words:1 x
         let to_message x = x.BA_.NM.StructStorage.data.MessageWrapper.Slice.msg
         let to_reader x = Some (RA_.StructStorage.readonly x)
         let init_root ?message_size () =
-          BA_.alloc_root_struct ?message_size ~data_words:2 ~pointer_words:1 ()
+          BA_.alloc_root_struct ?message_size ~data_words:1 ~pointer_words:1 ()
         let init_pointer ptr =
-          BA_.init_struct_pointer ptr ~data_words:2 ~pointer_words:1
+          BA_.init_struct_pointer ptr ~data_words:1 ~pointer_words:1
       end
       let bool_val_get x =
         BA_.get_bit ~default:false x ~byte_ofs:0 ~bit_ofs:0
@@ -501,9 +501,9 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
         BA_.set_int32 ~discr:{BA_.Discr.value=1; BA_.Discr.byte_ofs=2} ~default:(0l) x 4 v
       let int_val_set_int_exn x v = int_val_set x (Capnp.Runtime.Util.int32_of_int_exn v)
       let float_val_get x =
-        BA_.get_float64 ~default_bits:(0L) x 8
+        BA_.get_float32 ~default_bits:(0l) x 4
       let float_val_set x v =
-        BA_.set_float64 ~discr:{BA_.Discr.value=2; BA_.Discr.byte_ofs=2} ~default_bits:(0L) x 8 v
+        BA_.set_float32 ~discr:{BA_.Discr.value=2; BA_.Discr.byte_ofs=2} ~default_bits:(0l) x 4 v
       let has_string_val x =
         BA_.has_field x 0
       let string_val_get x =
@@ -538,13 +538,13 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
         | 3 -> StringVal (string_val_get x)
         | 4 -> ColorVal (color_val_get x)
         | v -> Undefined v
-      let of_message x = BA_.get_root_struct ~data_words:2 ~pointer_words:1 x
+      let of_message x = BA_.get_root_struct ~data_words:1 ~pointer_words:1 x
       let to_message x = x.BA_.NM.StructStorage.data.MessageWrapper.Slice.msg
       let to_reader x = Some (RA_.StructStorage.readonly x)
       let init_root ?message_size () =
-        BA_.alloc_root_struct ?message_size ~data_words:2 ~pointer_words:1 ()
+        BA_.alloc_root_struct ?message_size ~data_words:1 ~pointer_words:1 ()
       let init_pointer ptr =
-        BA_.init_struct_pointer ptr ~data_words:2 ~pointer_words:1
+        BA_.init_struct_pointer ptr ~data_words:1 ~pointer_words:1
     end
     module Property = struct
       type struct_t = [`Property_e8605ea33817ce11]
@@ -558,13 +558,13 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
       let has_value x =
         BA_.has_field x 1
       let value_get x =
-        BA_.get_struct ~data_words:2 ~pointer_words:1 x 1
+        BA_.get_struct ~data_words:1 ~pointer_words:1 x 1
       let value_set_reader x v =
-        BA_.set_struct ~data_words:2 ~pointer_words:1 x 1 v
+        BA_.set_struct ~data_words:1 ~pointer_words:1 x 1 v
       let value_set_builder x v =
-        BA_.set_struct ~data_words:2 ~pointer_words:1 x 1 (Some v)
+        BA_.set_struct ~data_words:1 ~pointer_words:1 x 1 (Some v)
       let value_init x =
-        BA_.init_struct ~data_words:2 ~pointer_words:1 x 1
+        BA_.init_struct ~data_words:1 ~pointer_words:1 x 1
       let of_message x = BA_.get_root_struct ~data_words:0 ~pointer_words:2 x
       let to_message x = x.BA_.NM.StructStorage.data.MessageWrapper.Slice.msg
       let to_reader x = Some (RA_.StructStorage.readonly x)

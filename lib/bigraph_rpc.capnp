@@ -4,7 +4,7 @@ struct PropertyValue {
   union {
     boolVal   @0 :Bool;
     intVal    @1 :Int32;
-    floatVal  @2 :Float64;
+    floatVal  @2 :Float32;
     stringVal @3 :Text;
     colorVal  :group {
       r @4 :UInt8;

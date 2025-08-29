@@ -76,7 +76,7 @@ class Node:
 
         self.properties = {}
         if properties:
-            validate_properties(self.node_type, properties)
+            # validate_properties(self.node_type, properties)
             self.properties.update(properties)
 
     def to_dict(self):
@@ -259,7 +259,7 @@ class Rule:
         def validate_all(bigraph):
             def walk(nodes):
                 for n in nodes:
-                    validate_properties(n.node_type, n.properties)
+                    # validate_properties(n.node_type, n.properties)
                     walk(n.children)
             walk(bigraph.nodes)
 

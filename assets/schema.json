@@ -26,7 +26,7 @@
     },
     "PIR": {
       "properties": {
-        "motion_detected": {"type": "bool"}
+        "motion": {"type": "bool"}
       }
     },
     "Display": {
