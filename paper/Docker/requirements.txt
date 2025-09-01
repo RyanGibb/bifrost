@@ -1,0 +1,9 @@
+numpy
+torch
+torchaudio
+librosa
+silero-vad
+onnxruntime
+sounddevice
+useful-moonshine
+huggingface_hub

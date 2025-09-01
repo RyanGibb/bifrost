@@ -1,0 +1,5 @@
+(executable
+ (public_name engine)
+ (name engine)
+ (libraries bifrost capnp capnp.unix))
+
