@@ -1,0 +1,9 @@
+(executable
+ (name bench_apply)
+ (modules bench_apply rand_topo)
+ (libraries unix bifrost yojson capnp))
+
+; (executable
+;  (name serialize)
+;  (modules serialize rand_topo)
+;  (libraries unix bifrost capnp))

@@ -190,7 +190,6 @@ let ssh_prefix () : string option =
   | None -> None
   | Some host ->
       let port   = env_default "STT_REMOTE_PORT" "22" in
-      (* default to no strict host key checking to avoid prompts; override with STT_REMOTE_STRICT=yes if you prefer *)
       let strict =
         match String.lowercase_ascii (env_default "STT_REMOTE_STRICT" "no") with
         | "no" | "0" | "false" ->
@@ -202,12 +201,10 @@ let ssh_prefix () : string option =
         | Some k when k <> "" -> Printf.sprintf "-i %s" (Filename.quote k)
         | _ -> ""
       in
-      (* IdentitiesOnly=yes ensures only the provided key(s) are tried; BatchMode=yes prevents password prompts *)
       Some (Printf.sprintf "ssh -o BatchMode=yes -o IdentitiesOnly=yes %s %s -p %s %s"
               strict key_opt (Filename.quote port) host)
 
 let docker_exec (docker_args : string) : int =
-  (* Option A: DOCKER_HOST over ssh if provided *)
   (match Sys.getenv_opt "STT_DOCKER_HOST" with
    | Some v when v<>"" -> Unix.putenv "DOCKER_HOST" v
    | _ -> ());
@@ -458,7 +455,7 @@ let () =
   Printf.printf "[engine] target: %s\n%!" target_path;
 
   List.iter (fun rf ->
-    Printf.printf "[engine] Applying rule file: %s\n%!" rf;
+    Printf.printf "[engine] applying rule file: %s\n%!" rf;
     let rule = load_rule_from_file rf in
     Printf.printf "[engine]   can_apply(%s)? %b\n%!" rule.name (can_apply rule !state);
     match apply_rule rule !state with
@@ -473,4 +470,4 @@ let () =
   ) rule_files;
 
   write_bigraph_to_file !state target_path;
-  Printf.printf "[engine] Done. Wrote updated bigraph to %s\n%!" target_path
+  Printf.printf "[engine] Done. Wrote updated graph to %s\n%!" target_path
