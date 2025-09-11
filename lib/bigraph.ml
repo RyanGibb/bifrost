@@ -1,10 +1,10 @@
 (* open Yojson.Safe *)
 
 (* Core types *)
-type node_id   = int
-type edge_id   = int
-type port_id   = int
-type site_id   = int
+type node_id = int
+type edge_id = int
+type port_id = int
+type site_id = int
 type region_id = int
 
 (* let schema_path = "../assets/schema.json" *)
@@ -13,39 +13,43 @@ type region_id = int
 
 module NodeId = struct
   type t = node_id
+
   let compare = Int.compare
 end
 
 module EdgeId = struct
   type t = edge_id
+
   let compare = Int.compare
 end
 
 module PortId = struct
   type t = port_id
+
   let compare = Int.compare
 end
 
 module SiteId = struct
   type t = site_id
+
   let compare = Int.compare
 end
 
 module RegionId = struct
   type t = region_id
+
   let compare = Int.compare
 end
 
-module NodeSet   = Set.Make (NodeId)
-module EdgeSet   = Set.Make (EdgeId)
-module PortSet   = Set.Make (PortId)
-module SiteSet   = Set.Make (SiteId)
+module NodeSet = Set.Make (NodeId)
+module EdgeSet = Set.Make (EdgeId)
+module PortSet = Set.Make (PortId)
+module SiteSet = Set.Make (SiteId)
 module RegionSet = Set.Make (RegionId)
-
-module NodeMap   = Map.Make (NodeId)
-module EdgeMap   = Map.Make (EdgeId)
-module PortMap   = Map.Make (PortId)
-module SiteMap   = Map.Make (SiteId)
+module NodeMap = Map.Make (NodeId)
+module EdgeMap = Map.Make (EdgeId)
+module PortMap = Map.Make (PortId)
+module SiteMap = Map.Make (SiteId)
 module RegionMap = Map.Make (RegionId)
 
 (* ---------- controls & nodes ------------------------------------- *)
@@ -60,11 +64,11 @@ type control = { name : string; arity : int }
     | TColor *)
 
 type property_value =
-  | Bool   of bool
-  | Int    of int
-  | Float  of float
+  | Bool of bool
+  | Int of int
+  | Float of float
   | String of string
-  | Color  of int * int * int
+  | Color of int * int * int
 
 type properties = (string * property_value) list
 
@@ -116,40 +120,40 @@ type properties = (string * property_value) list
   | _ -> Hashtbl.create 0 *)
 
 type node = {
-  id         : node_id;       (* This is THE unique identifier *)
-  name       : string;        (* Human-readable name *)
-  node_type  : string;        (* Type category *)
-  control    : control;
-  ports      : port_id list;
+  id : node_id; (* This is THE unique identifier *)
+  name : string; (* Human-readable name *)
+  node_type : string; (* Type category *)
+  control : control;
+  ports : port_id list;
   properties : properties option;
 }
 
 (* ---------- link structures -------------------------------------- *)
-type link    = Closed of edge_id | Name of string
+type link = Closed of edge_id | Name of string
 type linking = port_id -> link option
 
 (* ---------- place & link graphs ---------------------------------- *)
 type place_graph = {
-  nodes          : node NodeMap.t;
-  parent_map     : node_id NodeMap.t;
-  sites          : SiteSet.t;
-  regions        : RegionSet.t;
-  site_parent_map: node_id SiteMap.t;
-  region_nodes   : NodeSet.t RegionMap.t;
+  nodes : node NodeMap.t;
+  parent_map : node_id NodeMap.t;
+  sites : SiteSet.t;
+  regions : RegionSet.t;
+  site_parent_map : node_id SiteMap.t;
+  region_nodes : NodeSet.t RegionMap.t;
 }
 
 type link_graph = {
-  edges       : EdgeSet.t;
+  edges : EdgeSet.t;
   outer_names : string list;
   inner_names : string list;
-  linking     : linking;
+  linking : linking;
 }
 
 (* ---------- whole bigraph ---------------------------------------- *)
 type bigraph = {
-  place    : place_graph;
-  link     : link_graph;
-  signature: control list;
+  place : place_graph;
+  link : link_graph;
+  signature : control list;
 }
 
 (* ---------- interface wrappers ----------------------------------- *)
@@ -157,52 +161,51 @@ type interface = { sites : int; names : string list }
 
 type bigraph_with_interface = {
   bigraph : bigraph;
-  inner   : interface;
-  outer   : interface;
+  inner : interface;
+  outer : interface;
 }
 
 (* ---------- empty skeletons -------------------------------------- *)
 let empty_place_graph =
-  { nodes          = NodeMap.empty
-  ; parent_map     = NodeMap.empty
-  ; sites          = SiteSet.empty
-  ; regions        = RegionSet.empty
-  ; site_parent_map= SiteMap.empty
-  ; region_nodes   = RegionMap.empty
+  {
+    nodes = NodeMap.empty;
+    parent_map = NodeMap.empty;
+    sites = SiteSet.empty;
+    regions = RegionSet.empty;
+    site_parent_map = SiteMap.empty;
+    region_nodes = RegionMap.empty;
   }
 
 let empty_link_graph =
-  { edges       = EdgeSet.empty
-  ; outer_names = []
-  ; inner_names = []
-  ; linking     = (fun _ -> None)
+  {
+    edges = EdgeSet.empty;
+    outer_names = [];
+    inner_names = [];
+    linking = (fun _ -> None);
   }
 
 let empty_bigraph signature =
-  { place    = empty_place_graph
-  ; link     = empty_link_graph
-  ; signature
-  }
+  { place = empty_place_graph; link = empty_link_graph; signature }
 
 (* ---------- constructors & helpers ------------------------------- *)
 
 let find_node_by_name bg name =
-  NodeMap.fold (fun id node acc ->
-    if node.name = name then Some id else acc
-  ) bg.place.nodes None
+  NodeMap.fold
+    (fun id node acc -> if node.name = name then Some id else acc)
+    bg.place.nodes None
 
 (* Find nodes by type *)
 let find_nodes_by_type bg node_type =
-  NodeMap.fold (fun id node acc ->
-    if node.node_type = node_type then id :: acc else acc
-  ) bg.place.nodes []
-  
+  NodeMap.fold
+    (fun id node acc -> if node.node_type = node_type then id :: acc else acc)
+    bg.place.nodes []
+
 let create_control name arity = { name; arity }
 
 (* let schema = load_schema () *)
 
 let get_next_available_id bigraph =
-  let max_id = 
+  let max_id =
     NodeMap.fold (fun id _ acc -> max id acc) bigraph.place.nodes 0
   in
   max_id + 1
@@ -250,7 +253,7 @@ let add_node_as_child bigraph parent_id child_node =
     { bigraph with place = new_place }
 
 let create_node ?props ~name ~node_type id control =
-  let ports = List.init control.arity (fun i -> id * 1000 + i) in
+  let ports = List.init control.arity (fun i -> (id * 1000) + i) in
   (* Option.iter (validate_properties control.name) props; *)
   { id; name; node_type; control; ports; properties = props }
 
@@ -260,15 +263,13 @@ let create_node_auto_id ?props ~name ~node_type bigraph control =
 
 (* ---- property helpers ------------------------------------------- *)
 let get_node_property node key =
-  match node.properties with
-  | None -> None
-  | Some ps -> List.assoc_opt key ps
+  match node.properties with None -> None | Some ps -> List.assoc_opt key ps
 
 let set_node_property node key value =
   (* validate_property node.control.name key value; *)
   let new_props =
     match node.properties with
-    | None -> [key, value]
+    | None -> [ (key, value) ]
     | Some ps ->
         if List.exists (fun (k, _) -> k = key) ps then
           List.map (fun (k, v) -> if k = key then (k, value) else (k, v)) ps
@@ -287,23 +288,28 @@ let update_node_property bg nid key value =
 let rec collect_descendants place root_id acc =
   let acc_with_root = NodeSet.add root_id acc in
   let children =
-    NodeMap.fold (fun nid parent_id child_ids ->
-      if parent_id = root_id then nid :: child_ids else child_ids
-    ) place.parent_map []
+    NodeMap.fold
+      (fun nid parent_id child_ids ->
+        if parent_id = root_id then nid :: child_ids else child_ids)
+      place.parent_map []
   in
-  List.fold_left (fun a child -> collect_descendants place child a) acc_with_root children
+  List.fold_left
+    (fun a child -> collect_descendants place child a)
+    acc_with_root children
 
 let project_bigraph (bg : bigraph) ~(root_ids : node_id list) : bigraph =
   let nodes_to_keep =
-    List.fold_left (fun acc root ->
-      collect_descendants bg.place root acc
-    ) NodeSet.empty root_ids
+    List.fold_left
+      (fun acc root -> collect_descendants bg.place root acc)
+      NodeSet.empty root_ids
   in
   let nodes =
     NodeMap.filter (fun nid _ -> NodeSet.mem nid nodes_to_keep) bg.place.nodes
   in
   let parent_map =
-    NodeMap.filter (fun nid _ -> NodeSet.mem nid nodes_to_keep) bg.place.parent_map
+    NodeMap.filter
+      (fun nid _ -> NodeSet.mem nid nodes_to_keep)
+      bg.place.parent_map
   in
   let place = { bg.place with nodes; parent_map } in
   { bg with place }

@@ -6,15 +6,15 @@ let get_parent bigraph node_id =
 
 let get_children bigraph parent_id =
   (* Printf.printf "Debug: Getting children of node %d\n" parent_id; *)
-  let children = 
+  let children =
     NodeMap.fold
       (fun child_id parent_in_map acc ->
-        if parent_in_map = parent_id then 
-          (
-            (* Printf.printf "  Found child: %d\n" child_id; *)
-          NodeSet.add child_id acc)
+        if parent_in_map = parent_id then
+          (* Printf.printf "  Found child: %d\n" child_id; *)
+          NodeSet.add child_id acc
         else acc)
-      bigraph.place.parent_map NodeSet.empty in
+      bigraph.place.parent_map NodeSet.empty
+  in
   (* Printf.printf "  Total children: %d\n" (NodeSet.cardinal children); *)
   children
 
@@ -24,15 +24,13 @@ let get_root_nodes bigraph =
   (* NodeMap.iter (fun child parent ->
     Printf.printf "  %d -> %d\n" child parent
   ) bigraph.place.parent_map; *)
-  
   NodeMap.fold
     (* (fun node_id _ acc -> *)
     (fun node_id _ acc ->
       let is_in_parent_map = NodeMap.mem node_id bigraph.place.parent_map in
       (* Printf.printf "Debug: Node %d (%s) - in parent_map: %b\n" 
         node_id node.control.name is_in_parent_map; *)
-      if is_in_parent_map then acc
-      else NodeSet.add node_id acc)
+      if is_in_parent_map then acc else NodeSet.add node_id acc)
     bigraph.place.nodes NodeSet.empty
 
 (* let add_node_to_root bigraph node =
@@ -168,7 +166,7 @@ let validate_bigraph bigraph =
           (fun (sig_control : control) ->
             sig_control.name = node.control.name
             && sig_control.arity = node.control.arity)
-         bigraph.signature)
+          bigraph.signature)
       bigraph.place.nodes
   in
 
@@ -209,23 +207,24 @@ let clone_node node new_id =
     List.map (fun p -> p + ((new_id - node.id) * 1000)) node.ports
   in
   { node with id = new_id; ports = new_ports }
-  
+
 (* --- printing with properties --------------------------------------- *)
 let print_property = function
-  | Bool b   -> Printf.printf "%b" b
-  | Int n    -> Printf.printf "%d" n
-  | Float f  -> Printf.printf "%.2f" f
+  | Bool b -> Printf.printf "%b" b
+  | Int n -> Printf.printf "%d" n
+  | Float f -> Printf.printf "%.2f" f
   | String s -> Printf.printf "\"%s\"" s
-  | Color (r,g,b) -> Printf.printf "rgb(%d,%d,%d)" r g b
+  | Color (r, g, b) -> Printf.printf "rgb(%d,%d,%d)" r g b
 
 let print_properties = function
   | None | Some [] -> ()
   | Some props ->
       Printf.printf " [";
       List.iteri
-        (fun i (k,v) ->
-            if i > 0 then Printf.printf ", ";
-            Printf.printf "%s=" k; print_property v)
+        (fun i (k, v) ->
+          if i > 0 then Printf.printf ", ";
+          Printf.printf "%s=" k;
+          print_property v)
         props;
       Printf.printf "]"
 
@@ -233,8 +232,8 @@ let rec print_node_hierarchy bg indent node_id =
   match get_node bg node_id with
   | None -> ()
   | Some node ->
-      Printf.printf "%sNode %d: %s (name=\"%s\", type=\"%s\")" 
-        indent node_id node.control.name node.name node.node_type;
+      Printf.printf "%sNode %d: %s (name=\"%s\", type=\"%s\")" indent node_id
+        node.control.name node.name node.node_type;
       print_properties node.properties;
       Printf.printf "\n";
       let children = get_children bg node_id in
