@@ -1,6 +1,6 @@
 (executable
  (name bench_apply)
- (modules bench_apply rand_topo)
+ (modules bench_apply)
  (libraries unix bifrost yojson capnp))
 
 ; (executable
