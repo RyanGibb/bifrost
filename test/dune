@@ -1,4 +1,11 @@
 (executable
  (public_name test_matching)
  (name test_matching)
+ (modules test_matching)
  (libraries bifrost))
+
+(test
+ (name test_osm_parser)
+ (modules test_osm_parser)
+ (deps (source_tree bigraph-of-the-world))
+ (libraries bifrost yojson))
